@@ -167,7 +167,7 @@ function FishMesh({
 
     ref.current.visible = true;
     ref.current.position.copy(agent.position);
-    const heading = Math.atan2(agent.velocity.x, agent.velocity.z);
+    const heading = Math.atan2(agent.velocity.x, agent.velocity.z) + Math.PI;
     ref.current.rotation.set(0, heading, 0);
 
     const speed = agent.velocity.length();
