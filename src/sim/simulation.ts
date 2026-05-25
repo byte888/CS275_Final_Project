@@ -21,6 +21,8 @@ const FISH_GROUPS: FishGroupProfile[] = [
   { species: "long", color: "#94a3b8", origin: new Vector3(3.4, 1.2, -4.2) },
 ];
 
+const FLOOR_CLEARANCE = 1.05;
+
 export const defaultConfig: SimulationConfig = {
   agentCount: 48,
   perceptionRadius: 4.2,
@@ -96,10 +98,12 @@ export function stepSimulation(
 
     const velocity = agent.velocity.clone().addScaledVector(force, dt);
     clampLength(velocity, config.maxSpeed);
+    const position = agent.position.clone().addScaledVector(velocity, dt);
+    constrainPosition(position, velocity, config);
 
     return {
       ...agent,
-      position: agent.position.clone().addScaledVector(velocity, dt),
+      position,
       velocity,
     };
   });
@@ -127,7 +131,10 @@ function createAgents(count: number, bounds: Vector3, startId = 0, totalCount = 
           randomBetween(-1.4, 1.4),
         ),
       )
-      .clamp(bounds.clone().multiplyScalar(-0.85), bounds.clone().multiplyScalar(0.85));
+      .clamp(
+        new Vector3(-bounds.x * 0.85, -bounds.y + FLOOR_CLEARANCE, -bounds.z * 0.85),
+        bounds.clone().multiplyScalar(0.85),
+      );
     const velocity = new Vector3(
       randomBetween(-1, 1),
       randomBetween(-0.25, 0.25),
@@ -313,6 +320,21 @@ function steerWithinBounds(agent: FishAgent, config: SimulationConfig): Vector3 
   }
 
   return force.normalize().multiplyScalar(config.maxSpeed).sub(agent.velocity);
+}
+
+function constrainPosition(position: Vector3, velocity: Vector3, config: SimulationConfig) {
+  const min = new Vector3(-config.bounds.x, -config.bounds.y + FLOOR_CLEARANCE, -config.bounds.z);
+  const max = config.bounds;
+
+  for (const axis of ["x", "y", "z"] as const) {
+    if (position[axis] < min[axis]) {
+      position[axis] = min[axis];
+      velocity[axis] = Math.max(0, velocity[axis]) * 0.35;
+    } else if (position[axis] > max[axis]) {
+      position[axis] = max[axis];
+      velocity[axis] = Math.min(0, velocity[axis]) * 0.35;
+    }
+  }
 }
 
 function clampLength(vector: Vector3, maxLength: number): Vector3 {

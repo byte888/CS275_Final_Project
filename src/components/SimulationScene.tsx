@@ -19,7 +19,6 @@ type FishStyle = {
   body: string;
   belly: string;
   fin: string;
-  stripe: string;
   bodyScale: [number, number, number];
   tailZ: number;
   tailScale: number;
@@ -32,7 +31,6 @@ const FISH_STYLES: Record<FishSpecies, FishStyle> = {
     body: "#f97316",
     belly: "#fed7aa",
     fin: "#c2410c",
-    stripe: "#f8fafc",
     bodyScale: [0.82, 0.5, 1.45],
     tailZ: 0.62,
     tailScale: 0.86,
@@ -43,7 +41,6 @@ const FISH_STYLES: Record<FishSpecies, FishStyle> = {
     body: "#2563eb",
     belly: "#dbeafe",
     fin: "#facc15",
-    stripe: "#bfdbfe",
     bodyScale: [0.68, 0.38, 1.85],
     tailZ: 0.76,
     tailScale: 0.75,
@@ -54,7 +51,6 @@ const FISH_STYLES: Record<FishSpecies, FishStyle> = {
     body: "#ca8a04",
     belly: "#fef3c7",
     fin: "#854d0e",
-    stripe: "#fef08a",
     bodyScale: [0.95, 0.78, 1.03],
     tailZ: 0.48,
     tailScale: 0.58,
@@ -65,7 +61,6 @@ const FISH_STYLES: Record<FishSpecies, FishStyle> = {
     body: "#64748b",
     belly: "#cbd5e1",
     fin: "#334155",
-    stripe: "#e2e8f0",
     bodyScale: [0.55, 0.32, 2.35],
     tailZ: 0.92,
     tailScale: 0.78,
@@ -171,7 +166,7 @@ function FishMesh({
     ref.current.rotation.set(0, heading, 0);
 
     const speed = agent.velocity.length();
-    const phase = clock.elapsedTime * (1.8 + speed * 0.75) + phaseOffset;
+    const phase = clock.elapsedTime * (1.05 + speed * 0.38) + phaseOffset;
     const sway = Math.sin(phase);
     const secondarySway = Math.sin(phase + Math.PI / 2);
 
@@ -181,7 +176,7 @@ function FishMesh({
     }
 
     if (tailRef.current) {
-      tailRef.current.rotation.y = -sway * style.swimAmplitude;
+      tailRef.current.rotation.y = -sway * style.swimAmplitude * 0.72;
     }
 
     if (leftFinRef.current) {
@@ -237,19 +232,9 @@ function FishBody({ species, style }: { species: FishSpecies; style: FishStyle }
           <meshStandardMaterial color={style.body} roughness={0.68} metalness={0.03} />
         </mesh>
       </group>
-      {species !== "puffer" && [-0.24, 0.08, 0.36].map((z) => <FishStripe key={z} color={style.stripe} z={z} />)}
-      {species === "puffer" && <PufferSpikes color={style.stripe} />}
+      {species === "puffer" && <PufferSpikes color="#fef08a" />}
       <FishEyes z={eyeZ} y={eyeY} x={eyeX} />
     </>
-  );
-}
-
-function FishStripe({ color, z }: { color: string; z: number }) {
-  return (
-    <mesh position={[0, 0, z]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 0.56, 1]}>
-      <torusGeometry args={[0.28, 0.012, 8, 24]} />
-      <meshStandardMaterial color={color} roughness={0.82} />
-    </mesh>
   );
 }
 
@@ -414,16 +399,6 @@ function AnimatedJellyfish({ offset, index }: { offset: Vector3; index: number }
             roughness={0.42}
             transparent
             opacity={0.86}
-          />
-        </mesh>
-        <mesh position={[0, -0.08, 0]}>
-          <torusGeometry args={[0.33, 0.025, 8, 28]} />
-          <meshStandardMaterial
-            color="#c4b5fd"
-            emissive="#6d28d9"
-            emissiveIntensity={0.22}
-            transparent
-            opacity={0.78}
           />
         </mesh>
       </group>
