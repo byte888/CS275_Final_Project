@@ -1,6 +1,6 @@
-import { Clone, Environment, Float, OrbitControls, Text, useGLTF } from "@react-three/drei";
+import { Clone, Environment, Float, OrbitControls, Text, useAnimations, useGLTF } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { BoxGeometry, Group, Vector3 } from "three";
 import {
@@ -16,56 +16,31 @@ type SimulationSceneProps = {
 };
 
 type FishStyle = {
-  body: string;
-  belly: string;
-  fin: string;
-  bodyScale: [number, number, number];
-  tailZ: number;
-  tailScale: number;
-  finScale: number;
   swimAmplitude: number;
+  modelPath: string;
+  modelScale: number;
 };
 
 const FISH_STYLES: Record<FishSpecies, FishStyle> = {
   reef: {
-    body: "#f97316",
-    belly: "#fed7aa",
-    fin: "#c2410c",
-    bodyScale: [0.82, 0.5, 1.45],
-    tailZ: 0.62,
-    tailScale: 0.86,
-    finScale: 0.9,
     swimAmplitude: 0.2,
+    modelPath: "/models/downloaded/Fish.glb",
+    modelScale: 0.08,
   },
   blue: {
-    body: "#2563eb",
-    belly: "#dbeafe",
-    fin: "#facc15",
-    bodyScale: [0.68, 0.38, 1.85],
-    tailZ: 0.76,
-    tailScale: 0.75,
-    finScale: 0.72,
     swimAmplitude: 0.48,
+    modelPath: "/models/downloaded/Fish%20(1).glb",
+    modelScale: 0.08,
   },
   puffer: {
-    body: "#ca8a04",
-    belly: "#fef3c7",
-    fin: "#854d0e",
-    bodyScale: [0.95, 0.78, 1.03],
-    tailZ: 0.48,
-    tailScale: 0.58,
-    finScale: 0.65,
     swimAmplitude: 0.24,
+    modelPath: "/models/downloaded/Blowfish.glb",
+    modelScale: 0.05,
   },
   long: {
-    body: "#64748b",
-    belly: "#cbd5e1",
-    fin: "#334155",
-    bodyScale: [0.55, 0.32, 2.35],
-    tailZ: 0.92,
-    tailScale: 0.78,
-    finScale: 0.62,
     swimAmplitude: 0.56,
+    modelPath: "/models/downloaded/Fish%20(2).glb",
+    modelScale: 0.2,
   },
 };
 
@@ -137,17 +112,27 @@ function FishMesh({
   stateRef: MutableRefObject<SimulationState>;
 }) {
   const ref = useRef<Group>(null);
-  const bodyRef = useRef<Group>(null);
-  const tailRef = useRef<Group>(null);
-  const leftFinRef = useRef<Group>(null);
-  const rightFinRef = useRef<Group>(null);
-  const dorsalRef = useRef<Group>(null);
+  const modelRef = useRef<Group>(null);
   const species = useMemo(
     () => stateRef.current.agents.find((agent) => agent.id === agentId)?.species ?? "reef",
     [agentId, stateRef],
   );
   const style = FISH_STYLES[species];
+  const fishModel = useGLTF(style.modelPath);
+  const { actions } = useAnimations(fishModel.animations, modelRef);
   const phaseOffset = useMemo(() => agentId * 1.913, [agentId]);
+
+  useEffect(() => {
+    for (const action of Object.values(actions)) {
+      action?.reset().fadeIn(0.2).play();
+    }
+
+    return () => {
+      for (const action of Object.values(actions)) {
+        action?.fadeOut(0.2);
+      }
+    };
+  }, [actions]);
 
   useFrame(({ clock }) => {
     if (!ref.current) {
@@ -162,157 +147,38 @@ function FishMesh({
 
     ref.current.visible = true;
     ref.current.position.copy(agent.position);
-    const heading = Math.atan2(agent.velocity.x, agent.velocity.z) + Math.PI;
+    const heading = Math.atan2(agent.velocity.x, agent.velocity.z);
     ref.current.rotation.set(0, heading, 0);
 
     const speed = agent.velocity.length();
-    const phase = clock.elapsedTime * (1.05 + speed * 0.38) + phaseOffset;
+    const phase = clock.elapsedTime * (0.55 + speed * 0.18) + phaseOffset;
     const sway = Math.sin(phase);
     const secondarySway = Math.sin(phase + Math.PI / 2);
 
-    if (bodyRef.current) {
-      bodyRef.current.rotation.y = sway * style.swimAmplitude * 0.08;
-      bodyRef.current.rotation.z = secondarySway * 0.015;
-    }
-
-    if (tailRef.current) {
-      tailRef.current.rotation.y = -sway * style.swimAmplitude * 0.72;
-    }
-
-    if (leftFinRef.current) {
-      leftFinRef.current.rotation.z = Math.PI / 2 + secondarySway * 0.22;
-      leftFinRef.current.rotation.x = 0.12 + sway * 0.06;
-    }
-
-    if (rightFinRef.current) {
-      rightFinRef.current.rotation.z = -Math.PI / 2 - secondarySway * 0.22;
-      rightFinRef.current.rotation.x = 0.12 - sway * 0.06;
-    }
-
-    if (dorsalRef.current) {
-      dorsalRef.current.rotation.y = sway * 0.12;
+    if (modelRef.current) {
+      modelRef.current.rotation.y = sway * style.swimAmplitude * 0.12;
+      modelRef.current.rotation.z = secondarySway * 0.018;
+      modelRef.current.scale.setScalar(style.modelScale * (1 + secondarySway * 0.015));
     }
   });
 
   return (
     <group ref={ref}>
-      <group ref={bodyRef} scale={0.78}>
-        <FishBody species={species} style={style} />
-        <group ref={tailRef} position={[0, 0, style.tailZ]}>
-          <FishTail style={style} />
-        </group>
-        <group ref={leftFinRef} position={[-0.28 * style.finScale, -0.02, -0.04]}>
-          <FishSideFin style={style} />
-        </group>
-        <group ref={rightFinRef} position={[0.28 * style.finScale, -0.02, -0.04]}>
-          <FishSideFin style={style} />
-        </group>
-        <group ref={dorsalRef} position={[0, 0.28 * style.finScale, -0.04]}>
-          <FishDorsalFin style={style} />
-        </group>
+      <group ref={modelRef} scale={style.modelScale}>
+        <Clone object={fishModel.scene} castShadow />
       </group>
     </group>
   );
 }
 
-function FishBody({ species, style }: { species: FishSpecies; style: FishStyle }) {
-  const eyeZ = species === "long" ? -0.62 : species === "blue" ? -0.5 : -0.36;
-  const eyeY = species === "puffer" ? 0.13 : 0.1;
-  const eyeX = species === "long" ? 0.08 : 0.12;
-
-  return (
-    <>
-      <mesh position={[0, -0.1, -0.02]} scale={[style.bodyScale[0] * 0.75, 0.24, style.bodyScale[2] * 0.78]} castShadow>
-        <sphereGeometry args={[0.34, 18, 10]} />
-        <meshStandardMaterial color={style.belly} roughness={0.76} />
-      </mesh>
-      <group scale={style.bodyScale}>
-        <mesh castShadow>
-          <sphereGeometry args={[0.34, 28, 16]} />
-          <meshStandardMaterial color={style.body} roughness={0.68} metalness={0.03} />
-        </mesh>
-      </group>
-      {species === "puffer" && <PufferSpikes color="#fef08a" />}
-      <FishEyes z={eyeZ} y={eyeY} x={eyeX} />
-    </>
-  );
-}
-
-function FishEyes({ z, y, x }: { z: number; y: number; x: number }) {
-  return (
-    <>
-      {[-1, 1].map((side) => (
-        <mesh key={side} position={[side * x, y, z]} castShadow>
-          <sphereGeometry args={[0.026, 8, 6]} />
-          <meshStandardMaterial color="#111827" roughness={0.35} />
-        </mesh>
-      ))}
-    </>
-  );
-}
-
-function FishTail({ style }: { style: FishStyle }) {
-  return (
-    <>
-      <mesh position={[0, 0.14 * style.tailScale, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 2]} castShadow>
-        <coneGeometry args={[0.16 * style.tailScale, 0.55 * style.tailScale, 3]} />
-        <meshStandardMaterial color={style.fin} roughness={0.74} />
-      </mesh>
-      <mesh position={[0, -0.14 * style.tailScale, 0]} rotation={[-Math.PI / 2, 0, -Math.PI / 2]} castShadow>
-        <coneGeometry args={[0.16 * style.tailScale, 0.55 * style.tailScale, 3]} />
-        <meshStandardMaterial color={style.fin} roughness={0.74} />
-      </mesh>
-    </>
-  );
-}
-
-function FishSideFin({ style }: { style: FishStyle }) {
-  return (
-    <mesh castShadow>
-      <coneGeometry args={[0.09 * style.finScale, 0.38 * style.finScale, 3]} />
-      <meshStandardMaterial color={style.fin} roughness={0.78} />
-    </mesh>
-  );
-}
-
-function FishDorsalFin({ style }: { style: FishStyle }) {
-  return (
-    <mesh rotation={[0, 0, Math.PI]} castShadow>
-      <coneGeometry args={[0.11 * style.finScale, 0.42 * style.finScale, 3]} />
-      <meshStandardMaterial color={style.fin} roughness={0.78} />
-    </mesh>
-  );
-}
-
-function PufferSpikes({ color }: { color: string }) {
-  return (
-    <>
-      {Array.from({ length: 14 }, (_, index) => {
-        const angle = (index / 14) * Math.PI * 2;
-        return (
-          <mesh
-            key={index}
-            position={[Math.cos(angle) * 0.32, Math.sin(angle) * 0.22, Math.sin(index * 1.7) * 0.22]}
-            rotation={[0, 0, -angle + Math.PI / 2]}
-            castShadow
-          >
-            <coneGeometry args={[0.018, 0.13, 7]} />
-            <meshStandardMaterial color={color} roughness={0.8} />
-          </mesh>
-        );
-      })}
-    </>
-  );
-}
-
 function FoodMesh({ position }: { position: Vector3 }) {
-  const pattyModel = useGLTF("/models/krabby-patty.glb");
+  const pattyModel = useGLTF("/models/downloaded/Burger.glb");
 
   return (
     <Float speed={1.2} rotationIntensity={0.2} floatIntensity={0.25}>
       <group position={position}>
-        <Clone object={pattyModel.scene} scale={1.05} castShadow />
-        <Text position={[0, 0.9, 0]} fontSize={0.28} color="#fff7ed" anchorX="center">
+        <Clone object={pattyModel.scene} scale={1.7} castShadow />
+        <Text position={[0, 2.0, 0]} fontSize={0.3} color="#fff7ed" anchorX="center">
           Krabby Patty
         </Text>
       </group>
@@ -489,6 +355,10 @@ function Bubbles() {
   );
 }
 
-useGLTF.preload("/models/krabby-patty.glb");
+useGLTF.preload("/models/downloaded/Fish.glb");
+useGLTF.preload("/models/downloaded/Fish%20(1).glb");
+useGLTF.preload("/models/downloaded/Fish%20(2).glb");
+useGLTF.preload("/models/downloaded/Blowfish.glb");
+useGLTF.preload("/models/downloaded/Burger.glb");
 
 export { defaultConfig };

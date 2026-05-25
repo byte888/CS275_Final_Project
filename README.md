@@ -7,11 +7,11 @@ A browser-based 3D artificial life simulation inspired by Bikini Bottom. Fish re
 - Autonomous fish agents with position, velocity, and limited perception radius.
 - Four fish species with distinct GLB models and visual silhouettes.
 - Stable fish groups that start in different parts of the environment and prefer to school with their own species.
-- Articulated fish movement with animated tails, fins, and subtle body sway.
+- Downloaded fish models with subtle speed-based body sway.
 - Krabby Patty food source that attracts nearby fish.
 - Moving jellyfish swarm that fish avoid as an environmental hazard.
 - Jellyfish animation with pulsing bells, bobbing bodies, and waving tentacles.
-- Local `.glb` models for fish variants, jellyfish, and the Krabby Patty attractor.
+- Local downloaded `.glb` models for fish variants and the Krabby Patty attractor.
 - Schooling behavior from separation, alignment, and cohesion rules.
 - Interactive controls for population size, perception radius, and behavior weights.
 - 3D underwater scene built with React, Vite, Three.js, and React Three Fiber.
@@ -60,7 +60,7 @@ The agent combines weighted steering vectors:
 - Cohesion nudges fish toward the local group center, with stronger weighting for same-group fish.
 - Same-group fish align and cluster more strongly, while different groups still separate to avoid collisions.
 - Boundary steering keeps fish inside the underwater volume.
-- Tail beat frequency increases with agent speed, so faster fish visibly swim harder.
+- Fish sway frequency increases with agent speed, so faster fish visibly swim harder.
 
 These local rules are intentionally simple, but their combination produces emergent group movement and collective response to changing environmental features.
 
@@ -69,12 +69,12 @@ These local rules are intentionally simple, but their combination produces emerg
 ```text
 public/
   models/
-    fish-reef.glb          Orange reef fish group
-    fish-blue.glb          Blue slender fish group
-    fish-puffer.glb        Rounded puffer fish group
-    fish-long.glb          Long silver fish group
-    jellyfish.glb          Low-poly jellyfish hazard model
-    krabby-patty.glb       Low-poly food attractor model
+    downloaded/
+      Fish.glb             Reef fish group model
+      Fish (1).glb         Blue fish group model
+      Fish (2).glb         Long fish group model
+      Blowfish.glb         Puffer fish group model
+      Burger.glb           Food attractor model
 src/
   components/
     ControlsPanel.tsx      Interactive behavior controls
@@ -88,7 +88,7 @@ src/
 
 ## Replacing Models
 
-The current models are lightweight project-owned GLB files generated for the demo. To replace them with downloaded assets, keep the same filenames in `public/models/`, or update the paths in `src/components/SimulationScene.tsx`.
+The active fish and burger models are loaded from `public/models/downloaded/`. To replace them again, keep the same filenames there, or update the paths in `src/components/SimulationScene.tsx`.
 
 Recommended sources for permissively licensed models:
 
