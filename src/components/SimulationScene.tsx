@@ -19,6 +19,7 @@ type FishStyle = {
   swimAmplitude: number;
   modelPath: string;
   modelScale: number;
+  modelOffsetY?: number;
 };
 
 const FISH_STYLES: Record<FishSpecies, FishStyle> = {
@@ -41,6 +42,22 @@ const FISH_STYLES: Record<FishSpecies, FishStyle> = {
     swimAmplitude: 0.56,
     modelPath: "/models/downloaded/Fish%20(2).glb",
     modelScale: 0.2,
+  },
+  spongebob: {
+    swimAmplitude: 0.35,
+    modelPath: "/models/downloaded/spongebob.glb",
+    modelScale: 2.7,
+  },
+  patrick: {
+    swimAmplitude: 0.18,
+    modelPath: "/models/downloaded/patrick.glb",
+    modelScale: 0.6,
+  },
+  squidward: {
+    swimAmplitude: 0.25,
+    modelPath: "/models/downloaded/squidward.glb",
+    modelScale: 0.0035,
+    modelOffsetY: 0.95,
   },
 };
 
@@ -134,6 +151,17 @@ function FishMesh({
     };
   }, [actions]);
 
+  useEffect(() => {
+    if (!modelRef.current) return;
+    const boneNames: string[] = [];
+    modelRef.current.traverse((node: any) => {
+      if (node.isBone) boneNames.push(node.name);
+    });
+    if (boneNames.length > 0) {
+      console.log(`[${species}] bones:`, boneNames);
+    }
+  }, [species]);
+
   useFrame(({ clock }) => {
     if (!ref.current) {
       return;
@@ -164,7 +192,11 @@ function FishMesh({
 
   return (
     <group ref={ref}>
-      <group ref={modelRef} scale={style.modelScale}>
+      <group
+        ref={modelRef}
+        scale={style.modelScale}
+        position={[0, style.modelOffsetY ?? 0, 0]}
+      >
         <Clone object={fishModel.scene} castShadow />
       </group>
     </group>
@@ -175,14 +207,12 @@ function FoodMesh({ position }: { position: Vector3 }) {
   const pattyModel = useGLTF("/models/downloaded/Burger.glb");
 
   return (
-    <Float speed={1.2} rotationIntensity={0.2} floatIntensity={0.25}>
-      <group position={position}>
-        <Clone object={pattyModel.scene} scale={1.7} castShadow />
-        <Text position={[0, 2.0, 0]} fontSize={0.3} color="#fff7ed" anchorX="center">
-          Krabby Patty
-        </Text>
-      </group>
-    </Float>
+    <group position={position}>
+      <Clone object={pattyModel.scene} scale={2.8} castShadow />
+      <Text position={[0, 2.0, 0]} fontSize={0.3} color="#fff7ed" anchorX="center">
+        Krabby Patty
+      </Text>
+    </group>
   );
 }
 
@@ -360,5 +390,8 @@ useGLTF.preload("/models/downloaded/Fish%20(1).glb");
 useGLTF.preload("/models/downloaded/Fish%20(2).glb");
 useGLTF.preload("/models/downloaded/Blowfish.glb");
 useGLTF.preload("/models/downloaded/Burger.glb");
+useGLTF.preload("/models/downloaded/spongebob.glb");
+useGLTF.preload("/models/downloaded/patrick.glb");
+useGLTF.preload("/models/downloaded/squidward.glb");
 
 export { defaultConfig };

@@ -2,6 +2,7 @@ import { Vector3 } from "three";
 import type {
   FishAgent,
   FishSpecies,
+  FoodSource,
   Hazard,
   NeighborSample,
   SimulationConfig,
@@ -12,16 +13,30 @@ type FishGroupProfile = {
   species: FishSpecies;
   color: string;
   origin: Vector3;
+  solo?: boolean;
+  groundWalk?: boolean;
 };
 
-const FISH_GROUPS: FishGroupProfile[] = [
+const FISH_SCHOOLS: FishGroupProfile[] = [
   { species: "reef", color: "#f97316", origin: new Vector3(-7.4, -0.4, -4.4) },
   { species: "blue", color: "#38bdf8", origin: new Vector3(-7.0, 1.0, 4.3) },
   { species: "puffer", color: "#eab308", origin: new Vector3(1.8, -1.6, 4.1) },
   { species: "long", color: "#94a3b8", origin: new Vector3(3.4, 1.2, -4.2) },
 ];
 
+const CHARACTERS: FishGroupProfile[] = [
+  { species: "spongebob", color: "#facc15", origin: new Vector3(4.5, 0, -1.0), solo: true, groundWalk: true },
+  { species: "patrick", color: "#fb7185", origin: new Vector3(-2.0, 0, 2.5), solo: true, groundWalk: true },
+  { species: "squidward", color: "#5eead4", origin: new Vector3(6.0, 0, 3.5), solo: true, groundWalk: true },
+];
+
+const FISH_GROUPS: FishGroupProfile[] = [...FISH_SCHOOLS, ...CHARACTERS];
+
 const FLOOR_CLEARANCE = 1.05;
+const GROUND_WALK_Y = -5;
+const MIN_GROUND_SPEED = 1.2;
+const FOOD_COLLISION_RADIUS = 3.0;
+const CHARACTER_COLLISION_RADIUS = 0.5;
 
 export const defaultConfig: SimulationConfig = {
   agentCount: 48,
@@ -44,8 +59,8 @@ export function createInitialState(config: SimulationConfig = defaultConfig): Si
   return {
     agents: createAgents(config.agentCount, config.bounds, 0, config.agentCount),
     food: {
-      position: new Vector3(5.5, -1.1, -1.6),
-      radius: 2.4,
+      position: new Vector3(5.5, -4.0, -1.6),
+      radius: 1.5,
     },
     hazard: {
       position: new Vector3(-4, 1.2, 1.8),
@@ -88,18 +103,33 @@ export function stepSimulation(
     const neighbors = senseNeighbors(agent, state.agents, config.perceptionRadius);
     const force = new Vector3();
 
-    force.addScaledVector(attractFood(agent, state.food.position, config), config.weights.food);
+    force.addScaledVector(attractFood(agent, state.food, config), config.weights.food);
     force.addScaledVector(avoidHazard(agent, hazard, config), config.weights.hazard);
     force.addScaledVector(separate(agent, neighbors, config), config.weights.separation);
-    force.addScaledVector(align(agent, neighbors, config), config.weights.alignment);
-    force.addScaledVector(cohere(agent, neighbors, config), config.weights.cohesion);
+    if (!agent.groundWalk) {
+      force.addScaledVector(align(agent, neighbors, config), config.weights.alignment);
+      force.addScaledVector(cohere(agent, neighbors, config), config.weights.cohesion);
+    }
     force.addScaledVector(steerWithinBounds(agent, config), config.weights.boundary);
+
+    if (agent.groundWalk) {
+      force.y = 0;
+    }
+
     clampLength(force, config.maxForce);
 
     const velocity = agent.velocity.clone().addScaledVector(force, dt);
+    if (agent.groundWalk) {
+      velocity.y = 0;
+      enforceMinHorizSpeed(velocity, MIN_GROUND_SPEED);
+    }
     clampLength(velocity, config.maxSpeed);
     const position = agent.position.clone().addScaledVector(velocity, dt);
     constrainPosition(position, velocity, config);
+    keepOutOfFood(position, velocity, state.food.position);
+    if (agent.groundWalk) {
+      position.y = GROUND_WALK_Y;
+    }
 
     return {
       ...agent,
@@ -107,6 +137,8 @@ export function stepSimulation(
       velocity,
     };
   });
+
+  resolveCharacterCollisions(agents);
 
   return {
     ...state,
@@ -116,12 +148,68 @@ export function stepSimulation(
   };
 }
 
+function resolveCharacterCollisions(agents: FishAgent[]) {
+  const minDist = CHARACTER_COLLISION_RADIUS * 2;
+  const minDistSq = minDist * minDist;
+  for (let i = 0; i < agents.length; i++) {
+    if (!agents[i].groundWalk) continue;
+    for (let j = i + 1; j < agents.length; j++) {
+      if (!agents[j].groundWalk) continue;
+      const a = agents[i];
+      const b = agents[j];
+      const dx = b.position.x - a.position.x;
+      const dz = b.position.z - a.position.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq >= minDistSq) continue;
+      const dist = Math.sqrt(distSq);
+      let nx: number;
+      let nz: number;
+      if (dist < 1e-4) {
+        nx = 1;
+        nz = 0;
+      } else {
+        nx = dx / dist;
+        nz = dz / dist;
+      }
+      const overlap = minDist - dist;
+      const half = overlap / 2;
+      a.position.x -= nx * half;
+      a.position.z -= nz * half;
+      b.position.x += nx * half;
+      b.position.z += nz * half;
+      const aInto = a.velocity.x * nx + a.velocity.z * nz;
+      if (aInto > 0) {
+        a.velocity.x -= nx * aInto;
+        a.velocity.z -= nz * aInto;
+      }
+      const bInto = b.velocity.x * nx + b.velocity.z * nz;
+      if (bInto < 0) {
+        b.velocity.x -= nx * bInto;
+        b.velocity.z -= nz * bInto;
+      }
+    }
+  }
+}
+
+function pickGroupForId(id: number, totalCount: number): { group: FishGroupProfile; groupId: number } {
+  const characterCount = CHARACTERS.length;
+
+  if (id < characterCount) {
+    const groupId = FISH_SCHOOLS.length + id;
+    return { group: FISH_GROUPS[groupId], groupId };
+  }
+
+  const fishIndex = id - characterCount;
+  const fishCount = Math.max(1, totalCount - characterCount);
+  const groupSize = Math.max(1, Math.ceil(fishCount / FISH_SCHOOLS.length));
+  const groupId = Math.min(FISH_SCHOOLS.length - 1, Math.floor(fishIndex / groupSize));
+  return { group: FISH_GROUPS[groupId], groupId };
+}
+
 function createAgents(count: number, bounds: Vector3, startId = 0, totalCount = count): FishAgent[] {
   return Array.from({ length: count }, (_, index) => {
     const id = startId + index;
-    const groupSize = Math.max(1, Math.ceil(totalCount / FISH_GROUPS.length));
-    const groupId = Math.min(FISH_GROUPS.length - 1, Math.floor(id / groupSize));
-    const group = FISH_GROUPS[groupId];
+    const { group, groupId } = pickGroupForId(id, totalCount);
     const position = group.origin
       .clone()
       .add(
@@ -135,9 +223,14 @@ function createAgents(count: number, bounds: Vector3, startId = 0, totalCount = 
         new Vector3(-bounds.x * 0.85, -bounds.y + FLOOR_CLEARANCE, -bounds.z * 0.85),
         bounds.clone().multiplyScalar(0.85),
       );
+
+    if (group.groundWalk) {
+      position.y = GROUND_WALK_Y;
+    }
+
     const velocity = new Vector3(
       randomBetween(-1, 1),
-      randomBetween(-0.25, 0.25),
+      group.groundWalk ? 0 : randomBetween(-0.25, 0.25),
       randomBetween(-1, 1),
     );
 
@@ -152,6 +245,7 @@ function createAgents(count: number, bounds: Vector3, startId = 0, totalCount = 
       color: group.color,
       species: group.species,
       groupId,
+      groundWalk: group.groundWalk ?? false,
     };
   });
 }
@@ -192,16 +286,23 @@ function steerToward(agent: FishAgent, target: Vector3, maxSpeed: number): Vecto
   return desired.normalize().multiplyScalar(maxSpeed).sub(agent.velocity);
 }
 
-function attractFood(agent: FishAgent, foodPosition: Vector3, config: SimulationConfig): Vector3 {
-  const distance = agent.position.distanceTo(foodPosition);
-  const attractionRange = config.perceptionRadius + 1.4;
+function attractFood(agent: FishAgent, food: FoodSource, config: SimulationConfig): Vector3 {
+  const distance = agent.position.distanceTo(food.position);
 
+  if (distance < food.radius) {
+    if (distance === 0) return new Vector3();
+    const urgency = 1 - distance / food.radius;
+    const away = agent.position.clone().sub(food.position).normalize();
+    return away.multiplyScalar(config.maxSpeed * (1 + urgency * 2)).sub(agent.velocity);
+  }
+
+  const attractionRange = config.perceptionRadius + 1.4;
   if (distance > attractionRange) {
     return new Vector3();
   }
 
   const strength = 1 - distance / attractionRange;
-  return steerToward(agent, foodPosition, config.maxSpeed).multiplyScalar(0.35 + strength);
+  return steerToward(agent, food.position, config.maxSpeed).multiplyScalar(0.35 + strength);
 }
 
 function avoidHazard(agent: FishAgent, hazard: Hazard, config: SimulationConfig): Vector3 {
@@ -335,6 +436,41 @@ function constrainPosition(position: Vector3, velocity: Vector3, config: Simulat
       velocity[axis] = Math.min(0, velocity[axis]) * 0.35;
     }
   }
+}
+
+function keepOutOfFood(position: Vector3, velocity: Vector3, foodCenter: Vector3) {
+  const radial = position.clone().sub(foodCenter);
+  const distSq = radial.lengthSq();
+  if (distSq >= FOOD_COLLISION_RADIUS * FOOD_COLLISION_RADIUS) {
+    return;
+  }
+  const dist = Math.sqrt(distSq);
+  if (dist < 1e-4) {
+    radial.set(1, 0, 0);
+  } else {
+    radial.divideScalar(dist);
+  }
+  position.copy(foodCenter).addScaledVector(radial, FOOD_COLLISION_RADIUS);
+  const awayComp = velocity.dot(radial);
+  if (awayComp < 0) {
+    velocity.addScaledVector(radial, -awayComp);
+  }
+}
+
+function enforceMinHorizSpeed(velocity: Vector3, minSpeed: number) {
+  const horizLen = Math.hypot(velocity.x, velocity.z);
+  if (horizLen >= minSpeed) {
+    return;
+  }
+  if (horizLen < 1e-4) {
+    const angle = Math.random() * Math.PI * 2;
+    velocity.x = Math.cos(angle) * minSpeed;
+    velocity.z = Math.sin(angle) * minSpeed;
+    return;
+  }
+  const scale = minSpeed / horizLen;
+  velocity.x *= scale;
+  velocity.z *= scale;
 }
 
 function clampLength(vector: Vector3, maxLength: number): Vector3 {

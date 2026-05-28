@@ -19,7 +19,14 @@ export type SimulationConfig = {
   weights: BehaviorWeights;
 };
 
-export type FishSpecies = "reef" | "blue" | "puffer" | "long";
+export type FishSpecies =
+  | "reef"
+  | "blue"
+  | "puffer"
+  | "long"
+  | "spongebob"
+  | "patrick"
+  | "squidward";
 
 export type FishAgent = {
   id: number;
@@ -28,6 +35,7 @@ export type FishAgent = {
   color: string;
   species: FishSpecies;
   groupId: number;
+  groundWalk: boolean;
 };
 
 export type FoodSource = {
