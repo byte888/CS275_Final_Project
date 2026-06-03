@@ -3,6 +3,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { BoxGeometry, Group, Vector3 } from "three";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
   createInitialState,
   defaultConfig,
@@ -78,17 +79,23 @@ export function SimulationScene({ config }: SimulationSceneProps) {
 
 function SimulationWorld({ config }: SimulationSceneProps) {
   const stateRef = useRef<SimulationState>(createInitialState(config));
-  const [agentIds, setAgentIds] = useState(() => stateRef.current.agents.map((agent) => agent.id));
+  const agentMapRef = useRef(new Map(stateRef.current.agents.map((agent) => [agent.id, agent])));
+  const initialAgentIds = useMemo(() => stateRef.current.agents.map((agent) => agent.id), []);
+  const agentIdsRef = useRef(initialAgentIds);
+  const [agentIds, setAgentIds] = useState(initialAgentIds);
 
   useFrame((_, delta) => {
     stateRef.current = resizePopulation(stateRef.current, config);
     stateRef.current = stepSimulation(stateRef.current, config, delta);
+    agentMapRef.current = new Map(stateRef.current.agents.map((agent) => [agent.id, agent]));
     const nextAgentIds = stateRef.current.agents.map((agent) => agent.id);
+    const currentAgentIds = agentIdsRef.current;
 
     if (
-      nextAgentIds.length !== agentIds.length ||
-      nextAgentIds.some((agentId, index) => agentId !== agentIds[index])
+      nextAgentIds.length !== currentAgentIds.length ||
+      nextAgentIds.some((agentId, index) => agentId !== currentAgentIds[index])
     ) {
+      agentIdsRef.current = nextAgentIds;
       setAgentIds(nextAgentIds);
     }
   });
@@ -99,23 +106,23 @@ function SimulationWorld({ config }: SimulationSceneProps) {
       <BoundaryBox bounds={config.bounds} />
       <FoodMesh position={stateRef.current.food.position} />
       <HazardSwarm stateRef={stateRef} />
-      <FishSchool stateRef={stateRef} agentIds={agentIds} />
+      <FishSchool agentMapRef={agentMapRef} agentIds={agentIds} />
       <Bubbles />
     </>
   );
 }
 
 function FishSchool({
-  stateRef,
+  agentMapRef,
   agentIds,
 }: {
-  stateRef: MutableRefObject<SimulationState>;
+  agentMapRef: MutableRefObject<Map<number, SimulationState["agents"][number]>>;
   agentIds: number[];
 }) {
   return (
     <>
       {agentIds.map((agentId) => (
-        <FishMesh key={agentId} agentId={agentId} stateRef={stateRef} />
+        <FishMesh key={agentId} agentId={agentId} agentMapRef={agentMapRef} />
       ))}
     </>
   );
@@ -123,19 +130,17 @@ function FishSchool({
 
 function FishMesh({
   agentId,
-  stateRef,
+  agentMapRef,
 }: {
   agentId: number;
-  stateRef: MutableRefObject<SimulationState>;
+  agentMapRef: MutableRefObject<Map<number, SimulationState["agents"][number]>>;
 }) {
   const ref = useRef<Group>(null);
   const modelRef = useRef<Group>(null);
-  const species = useMemo(
-    () => stateRef.current.agents.find((agent) => agent.id === agentId)?.species ?? "reef",
-    [agentId, stateRef],
-  );
+  const species = useMemo(() => agentMapRef.current.get(agentId)?.species ?? "reef", [agentId, agentMapRef]);
   const style = FISH_STYLES[species];
   const fishModel = useGLTF(style.modelPath);
+  const clonedScene = useMemo(() => cloneSkeleton(fishModel.scene), [fishModel.scene]);
   const { actions } = useAnimations(fishModel.animations, modelRef);
   const phaseOffset = useMemo(() => agentId * 1.913, [agentId]);
 
@@ -151,23 +156,12 @@ function FishMesh({
     };
   }, [actions]);
 
-  useEffect(() => {
-    if (!modelRef.current) return;
-    const boneNames: string[] = [];
-    modelRef.current.traverse((node: any) => {
-      if (node.isBone) boneNames.push(node.name);
-    });
-    if (boneNames.length > 0) {
-      console.log(`[${species}] bones:`, boneNames);
-    }
-  }, [species]);
-
   useFrame(({ clock }) => {
     if (!ref.current) {
       return;
     }
 
-    const agent = stateRef.current.agents.find((candidate) => candidate.id === agentId);
+    const agent = agentMapRef.current.get(agentId);
     if (!agent) {
       ref.current.visible = false;
       return;
@@ -197,7 +191,7 @@ function FishMesh({
         scale={style.modelScale}
         position={[0, style.modelOffsetY ?? 0, 0]}
       >
-        <Clone object={fishModel.scene} castShadow />
+        <primitive object={clonedScene} />
       </group>
     </group>
   );
