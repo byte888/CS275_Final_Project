@@ -25,7 +25,7 @@ export const KRABBY_PATTY_COLLISION_HEIGHT = 2.5;
 const FIXED_BUILDINGS: StaticSceneObject[] = [
   {
     id: "spongebob-pineapple-house",
-    modelPath: "/models/downloaded/spongebobs_pineapple_house_3d_model.glb",
+    modelPath: "/models/downloaded/spongebobs_house.glb",
     position: new Vector3(0.0, GROUND_Y, 4.0),
     rotationY: Math.PI * 0.0,
     scale: 0.82,
@@ -34,7 +34,7 @@ const FIXED_BUILDINGS: StaticSceneObject[] = [
   },
   {
     id: "patrick-house",
-    modelPath: "/models/downloaded/sponge_bob_hero_pants_patricks_house.glb",
+    modelPath: "/models/downloaded/patricks_house.glb",
     position: new Vector3(-8.8, GROUND_Y, 4.0),
     rotationY: Math.PI * 0.88,
     scale: 1.2,
@@ -43,7 +43,7 @@ const FIXED_BUILDINGS: StaticSceneObject[] = [
   },
   {
     id: "squidward-house",
-    modelPath: "/models/downloaded/squidwards_house_low_poly.glb",
+    modelPath: "/models/downloaded/squidwards_house.glb",
     position: new Vector3(8.8, GROUND_Y, 4.0),
     rotationY: -Math.PI * 0.04,
     scale: 0.62,
@@ -52,7 +52,7 @@ const FIXED_BUILDINGS: StaticSceneObject[] = [
   },
   {
     id: "krusty-krab",
-    modelPath: "/models/downloaded/the_krusty_krab_3d_model.glb",
+    modelPath: "/models/downloaded/krusty_krab.glb",
     position: new Vector3(9.0, GROUND_Y, -5.15),
     rotationY: -Math.PI * 0.15,
     scale: 1.3,
@@ -61,7 +61,7 @@ const FIXED_BUILDINGS: StaticSceneObject[] = [
   },
   {
     id: "downtown-cluster-tscp",
-    modelPath: "/models/downloaded/tscp_-_downtown_bikini_bottom.glb",
+    modelPath: "/models/downloaded/downtown_fullset.glb",
     position: new Vector3(-1.75, GROUND_Y, -3.5),
     rotationY: Math.PI * 1.1,
     scale: 0.043,
@@ -70,7 +70,7 @@ const FIXED_BUILDINGS: StaticSceneObject[] = [
   },
   {
     id: "downtown-cluster-main",
-    modelPath: "/models/downloaded/down_town_bikini_bottom_tscp.glb",
+    modelPath: "/models/downloaded/downtown_buildings.glb",
     position: new Vector3(-9.0, GROUND_Y, -5.15),
     rotationY: -Math.PI * 0.5,
     scale: 0.05,
