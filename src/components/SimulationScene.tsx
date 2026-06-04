@@ -1,9 +1,10 @@
 import { Clone, Environment, Float, OrbitControls, Text, useAnimations, useGLTF } from "@react-three/drei";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { Box3, BoxGeometry, Group, Vector3 } from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import {
   createInitialState,
   defaultConfig,
@@ -65,6 +66,8 @@ const FISH_STYLES: Record<FishSpecies, FishStyle> = {
 };
 
 export function SimulationScene({ config }: SimulationSceneProps) {
+  const controlsRef = useRef<OrbitControlsImpl>(null);
+
   return (
     <Canvas camera={{ position: [0, 7, 16], fov: 50 }} shadows>
       <color attach="background" args={["#082f49"]} />
@@ -73,10 +76,108 @@ export function SimulationScene({ config }: SimulationSceneProps) {
       <directionalLight position={[6, 9, 6]} intensity={1.4} castShadow />
       <pointLight position={[0, 3, -4]} color="#7dd3fc" intensity={12} distance={20} />
       <SimulationWorld config={config} />
-      <OrbitControls enablePan={false} maxDistance={26} minDistance={8} />
+      <KeyboardCameraControls controlsRef={controlsRef} />
+      <OrbitControls ref={controlsRef} enablePan={false} maxDistance={26} minDistance={8} />
       <Environment preset="sunset" />
     </Canvas>
   );
+}
+
+function KeyboardCameraControls({
+  controlsRef,
+}: {
+  controlsRef: MutableRefObject<OrbitControlsImpl | null>;
+}) {
+  const { camera } = useThree();
+  const pressedKeysRef = useRef(new Set<string>());
+  const forwardRef = useRef(new Vector3());
+  const rightRef = useRef(new Vector3());
+  const movementRef = useRef(new Vector3());
+
+  useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      const tagName = target.tagName.toLowerCase();
+      return tagName === "input" || tagName === "textarea" || tagName === "select" || target.isContentEditable;
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || isTypingTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "w" || key === "a" || key === "s" || key === "d") {
+        pressedKeysRef.current.add(key);
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      pressedKeysRef.current.delete(event.key.toLowerCase());
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
+  useFrame((_, delta) => {
+    const pressedKeys = pressedKeysRef.current;
+    if (pressedKeys.size === 0) {
+      return;
+    }
+
+    const movement = movementRef.current.set(0, 0, 0);
+    const forward = forwardRef.current;
+    const right = rightRef.current;
+
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+
+    if (forward.lengthSq() === 0) {
+      return;
+    }
+
+    forward.normalize();
+    right.crossVectors(forward, camera.up).normalize();
+
+    if (pressedKeys.has("w")) {
+      movement.add(forward);
+    }
+
+    if (pressedKeys.has("s")) {
+      movement.sub(forward);
+    }
+
+    if (pressedKeys.has("a")) {
+      movement.sub(right);
+    }
+
+    if (pressedKeys.has("d")) {
+      movement.add(right);
+    }
+
+    if (movement.lengthSq() === 0) {
+      return;
+    }
+
+    movement.normalize().multiplyScalar(9 * delta);
+    camera.position.add(movement);
+
+    if (controlsRef.current) {
+      controlsRef.current.target.add(movement);
+      controlsRef.current.update();
+    }
+  });
+
+  return null;
 }
 
 function SimulationWorld({ config }: SimulationSceneProps) {
