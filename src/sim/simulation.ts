@@ -4,6 +4,7 @@ import type {
   FishSpecies,
   FoodSource,
   Hazard,
+  HazardMember,
   NeighborSample,
   SimulationConfig,
   SimulationState,
@@ -37,6 +38,13 @@ const GROUND_WALK_Y = -5;
 const MIN_GROUND_SPEED = 1.2;
 const FOOD_COLLISION_RADIUS = 3.0;
 const CHARACTER_COLLISION_RADIUS = 0.5;
+export const HAZARD_SWARM_SIZE = 10;
+const HAZARD_LEADER_SPEED = 1.65;
+const HAZARD_LEADER_MAX_FORCE = 1.4;
+const HAZARD_FOLLOWER_MAX_SPEED = 2.2;
+const HAZARD_FOLLOW_STIFFNESS = 2.0;
+const HAZARD_TARGET_REACHED_RADIUS = 1.3;
+const UP_AXIS = new Vector3(0, 1, 0);
 
 export const defaultConfig: SimulationConfig = {
   agentCount: 48,
@@ -62,11 +70,7 @@ export function createInitialState(config: SimulationConfig = defaultConfig): Si
       position: new Vector3(5.5, -4.0, -1.6),
       radius: 1.5,
     },
-    hazard: {
-      position: new Vector3(-4, 1.2, 1.8),
-      radius: 2.8,
-      phase: 0,
-    },
+    hazard: createHazard(config.bounds),
     time: 0,
   };
 }
@@ -98,7 +102,7 @@ export function stepSimulation(
   deltaSeconds: number,
 ): SimulationState {
   const dt = Math.min(deltaSeconds, 0.04);
-  const hazard = updateHazard(state.hazard, state.time + dt);
+  const hazard = updateHazard(state.hazard, config, dt, state.time + dt);
   const agents = state.agents.map((agent) => {
     const neighbors = senseNeighbors(agent, state.agents, config.perceptionRadius);
     const force = new Vector3();
@@ -250,16 +254,216 @@ function createAgents(count: number, bounds: Vector3, startId = 0, totalCount = 
   });
 }
 
-function updateHazard(hazard: Hazard, time: number): Hazard {
+function createHazard(bounds: Vector3): Hazard {
+  const leaderPosition = new Vector3(-2.2, 1.2, 1.8).clamp(
+    hazardMinBounds(bounds),
+    hazardMaxBounds(bounds),
+  );
+  const leaderVelocity = new Vector3(1.2, 0.2, -0.8)
+    .normalize()
+    .multiplyScalar(HAZARD_LEADER_SPEED);
+
+  return {
+    position: leaderPosition.clone(),
+    radius: 3.2,
+    phase: 0,
+    leaderPosition,
+    leaderVelocity,
+    targetPosition: pickHazardTarget(bounds, leaderPosition),
+    members: createHazardMembers(leaderPosition),
+  };
+}
+
+function updateHazard(
+  hazard: Hazard,
+  config: SimulationConfig,
+  dt: number,
+  time: number,
+): Hazard {
+  const leaderPosition = (hazard.leaderPosition ?? hazard.position).clone();
+  const leaderVelocity = (hazard.leaderVelocity ?? randomDirection().multiplyScalar(HAZARD_LEADER_SPEED)).clone();
+  let targetPosition = (hazard.targetPosition ?? pickHazardTarget(config.bounds, leaderPosition)).clone();
+
+  if (leaderPosition.distanceTo(targetPosition) < HAZARD_TARGET_REACHED_RADIUS) {
+    targetPosition = pickHazardTarget(config.bounds, leaderPosition);
+  }
+
+  const toTarget = targetPosition.clone().sub(leaderPosition);
+  const desiredVelocity =
+    toTarget.lengthSq() > 0.0001
+      ? toTarget.normalize().multiplyScalar(HAZARD_LEADER_SPEED)
+      : new Vector3();
+  const wanderingCurrent = new Vector3(
+    Math.sin(time * 1.7 + hazard.phase * 0.13),
+    Math.sin(time * 1.1 + 1.8) * 0.45,
+    Math.cos(time * 1.45 - 0.6),
+  ).multiplyScalar(0.55);
+  const steering = desiredVelocity.add(wanderingCurrent).sub(leaderVelocity);
+  clampLength(steering, HAZARD_LEADER_MAX_FORCE);
+
+  leaderVelocity.addScaledVector(steering, dt);
+  clampLength(leaderVelocity, HAZARD_LEADER_SPEED);
+  if (leaderVelocity.lengthSq() < 0.36) {
+    leaderVelocity.copy(toTarget.lengthSq() > 0.0001 ? toTarget.normalize() : randomDirection());
+    leaderVelocity.multiplyScalar(0.6);
+  }
+
+  leaderPosition.addScaledVector(leaderVelocity, dt);
+  constrainHazardPosition(leaderPosition, leaderVelocity, config.bounds);
+
+  if (leaderPosition.distanceTo(targetPosition) < HAZARD_TARGET_REACHED_RADIUS) {
+    targetPosition = pickHazardTarget(config.bounds, leaderPosition);
+  }
+
+  const members = updateHazardMembers(
+    hazard.members?.length === HAZARD_SWARM_SIZE
+      ? hazard.members
+      : createHazardMembers(hazard.position),
+    leaderPosition,
+    leaderVelocity,
+    config.bounds,
+    time,
+    dt,
+  );
+
   return {
     ...hazard,
-    position: new Vector3(
-      Math.sin(time * 0.36) * 6.2,
-      1.2 + Math.sin(time * 0.72) * 1.1,
-      Math.cos(time * 0.28) * 3.4,
-    ),
+    position: averageHazardPosition(members),
+    leaderPosition,
+    leaderVelocity,
+    targetPosition,
+    members,
     phase: time,
   };
+}
+
+function createHazardMembers(center: Vector3): HazardMember[] {
+  return Array.from({ length: HAZARD_SWARM_SIZE }, (_, index) => {
+    const isLeader = index === 0;
+    const angle = ((index - 1) / Math.max(1, HAZARD_SWARM_SIZE - 1)) * Math.PI * 2;
+    const radius = isLeader ? 0 : randomBetween(0.85, 1.9);
+    const offset = isLeader
+      ? new Vector3()
+      : new Vector3(
+          Math.cos(angle) * radius,
+          randomBetween(-0.75, 0.55),
+          Math.sin(angle) * radius,
+        );
+
+    return {
+      id: index,
+      position: center.clone().add(offset),
+      velocity: new Vector3(),
+      offset,
+      phaseOffset: randomBetween(0, Math.PI * 2),
+      isLeader,
+    };
+  });
+}
+
+function updateHazardMembers(
+  members: HazardMember[],
+  leaderPosition: Vector3,
+  leaderVelocity: Vector3,
+  bounds: Vector3,
+  time: number,
+  dt: number,
+): HazardMember[] {
+  const formationYaw = Math.sin(time * 0.17) * 0.55 + time * 0.08;
+
+  return members.map((member, index) => {
+    if (index === 0 || member.isLeader) {
+      return {
+        ...member,
+        position: leaderPosition.clone(),
+        velocity: leaderVelocity.clone(),
+        offset: new Vector3(),
+        isLeader: true,
+      };
+    }
+
+    const targetPosition = leaderPosition
+      .clone()
+      .add(member.offset.clone().applyAxisAngle(UP_AXIS, formationYaw + member.phaseOffset * 0.05));
+    targetPosition.y += Math.sin(time * 0.9 + member.phaseOffset) * 0.24;
+    targetPosition.clamp(hazardMinBounds(bounds), hazardMaxBounds(bounds));
+
+    const position = member.position.clone();
+    const velocity = member.velocity.clone();
+    const followForce = targetPosition
+      .sub(position)
+      .multiplyScalar(HAZARD_FOLLOW_STIFFNESS)
+      .addScaledVector(leaderVelocity, 0.55)
+      .addScaledVector(velocity, -0.45);
+
+    velocity.addScaledVector(followForce, dt);
+    clampLength(velocity, HAZARD_FOLLOWER_MAX_SPEED);
+    position.addScaledVector(velocity, dt);
+    constrainHazardPosition(position, velocity, bounds);
+
+    return {
+      ...member,
+      position,
+      velocity,
+    };
+  });
+}
+
+function averageHazardPosition(members: HazardMember[]): Vector3 {
+  if (members.length === 0) {
+    return new Vector3();
+  }
+
+  return members
+    .reduce((center, member) => center.add(member.position), new Vector3())
+    .divideScalar(members.length);
+}
+
+function pickHazardTarget(bounds: Vector3, currentPosition?: Vector3): Vector3 {
+  const min = hazardMinBounds(bounds);
+  const max = hazardMaxBounds(bounds);
+  const minDistance = bounds.length() * 0.42;
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const target = new Vector3(
+      randomBetween(min.x, max.x),
+      randomBetween(min.y, max.y),
+      randomBetween(min.z, max.z),
+    );
+
+    if (!currentPosition || target.distanceTo(currentPosition) >= minDistance) {
+      return target;
+    }
+  }
+
+  return new Vector3(
+    randomBetween(min.x, max.x),
+    randomBetween(min.y, max.y),
+    randomBetween(min.z, max.z),
+  );
+}
+
+function constrainHazardPosition(position: Vector3, velocity: Vector3, bounds: Vector3) {
+  const min = hazardMinBounds(bounds);
+  const max = hazardMaxBounds(bounds);
+
+  for (const axis of ["x", "y", "z"] as const) {
+    if (position[axis] < min[axis]) {
+      position[axis] = min[axis];
+      velocity[axis] = Math.abs(velocity[axis]) * 0.45;
+    } else if (position[axis] > max[axis]) {
+      position[axis] = max[axis];
+      velocity[axis] = -Math.abs(velocity[axis]) * 0.45;
+    }
+  }
+}
+
+function hazardMinBounds(bounds: Vector3): Vector3 {
+  return new Vector3(-bounds.x * 0.92, -bounds.y * 0.55, -bounds.z * 0.92);
+}
+
+function hazardMaxBounds(bounds: Vector3): Vector3 {
+  return new Vector3(bounds.x * 0.92, bounds.y * 0.86, bounds.z * 0.92);
 }
 
 function senseNeighbors(
@@ -485,4 +689,9 @@ function clampLength(vector: Vector3, maxLength: number): Vector3 {
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
+}
+
+function randomDirection(): Vector3 {
+  return new Vector3(randomBetween(-1, 1), randomBetween(-0.25, 0.25), randomBetween(-1, 1))
+    .normalize();
 }

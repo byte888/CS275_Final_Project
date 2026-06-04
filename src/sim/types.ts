@@ -47,6 +47,19 @@ export type Hazard = {
   position: Vector3;
   radius: number;
   phase: number;
+  leaderPosition: Vector3;
+  leaderVelocity: Vector3;
+  targetPosition: Vector3;
+  members: HazardMember[];
+};
+
+export type HazardMember = {
+  id: number;
+  position: Vector3;
+  velocity: Vector3;
+  offset: Vector3;
+  phaseOffset: number;
+  isLeader: boolean;
 };
 
 export type SimulationState = {

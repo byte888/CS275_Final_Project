@@ -7,6 +7,7 @@ import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.j
 import {
   createInitialState,
   defaultConfig,
+  HAZARD_SWARM_SIZE,
   resizePopulation,
   stepSimulation,
 } from "../sim/simulation";
@@ -212,12 +213,8 @@ function FoodMesh({ position }: { position: Vector3 }) {
 
 function HazardSwarm({ stateRef }: { stateRef: MutableRefObject<SimulationState> }) {
   const ref = useRef<Group>(null);
-  const offsets = useMemo(
-    () =>
-      Array.from({ length: 9 }, (_, index) => {
-        const angle = (index / 9) * Math.PI * 2;
-        return new Vector3(Math.cos(angle) * 0.85, Math.sin(index) * 0.35, Math.sin(angle) * 0.85);
-      }),
+  const memberIndexes = useMemo(
+    () => Array.from({ length: HAZARD_SWARM_SIZE }, (_, index) => index),
     [],
   );
 
@@ -232,33 +229,63 @@ function HazardSwarm({ stateRef }: { stateRef: MutableRefObject<SimulationState>
 
   return (
     <group ref={ref}>
-      {offsets.map((offset, index) => (
-        <AnimatedJellyfish key={index} offset={offset} index={index} />
+      {memberIndexes.map((index) => (
+        <AnimatedJellyfish
+          key={index}
+          stateRef={stateRef}
+          index={index}
+          isLeader={index === 0}
+        />
       ))}
-      <Text position={[0, 1.2, 0]} fontSize={0.3} color="#f5d0fe" anchorX="center">
+      <Text position={[0, 1.55, 0]} fontSize={0.3} color="#f5d0fe" anchorX="center">
         Jellyfish Hazard
       </Text>
     </group>
   );
 }
 
-function AnimatedJellyfish({ offset, index }: { offset: Vector3; index: number }) {
+function AnimatedJellyfish({
+  stateRef,
+  index,
+  isLeader,
+}: {
+  stateRef: MutableRefObject<SimulationState>;
+  index: number;
+  isLeader: boolean;
+}) {
   const groupRef = useRef<Group>(null);
   const bellRef = useRef<Group>(null);
   const tentacleRefs = useRef<Array<Group | null>>([]);
   const phaseOffset = useMemo(() => index * 0.73, [index]);
+  const scale = isLeader ? 0.74 : 0.56;
+  const bellColor = isLeader ? "#f0abfc" : "#d8b4fe";
+  const bellEmissive = isLeader ? "#db2777" : "#7c3aed";
+  const tentacleColor = isLeader ? "#f9a8d4" : "#c084fc";
+  const tentacleEmissive = isLeader ? "#be185d" : "#7e22ce";
 
   useFrame(({ clock }) => {
-    const phase = clock.elapsedTime * 1.35 + phaseOffset;
+    const hazard = stateRef.current.hazard;
+    const member = hazard.members[index];
+    const phase = clock.elapsedTime * 1.35 + (member?.phaseOffset ?? phaseOffset);
     const pulse = Math.sin(phase);
 
     if (groupRef.current) {
+      if (!member) {
+        groupRef.current.visible = false;
+        return;
+      }
+
+      groupRef.current.visible = true;
       groupRef.current.position.set(
-        offset.x,
-        offset.y + Math.sin(phase * 0.8) * 0.12,
-        offset.z,
+        member.position.x - hazard.position.x,
+        member.position.y - hazard.position.y + Math.sin(phase * 0.8) * 0.12,
+        member.position.z - hazard.position.z,
       );
-      groupRef.current.rotation.y = Math.sin(phase * 0.35) * 0.18;
+      const heading =
+        member.velocity.lengthSq() > 0.0001
+          ? Math.atan2(member.velocity.x, member.velocity.z)
+          : 0;
+      groupRef.current.rotation.y = heading + Math.sin(phase * 0.35) * 0.18;
     }
 
     if (bellRef.current) {
@@ -278,19 +305,25 @@ function AnimatedJellyfish({ offset, index }: { offset: Vector3; index: number }
   });
 
   return (
-    <group ref={groupRef} position={offset} scale={0.58}>
+    <group ref={groupRef} scale={scale}>
       <group ref={bellRef}>
         <mesh castShadow>
           <sphereGeometry args={[0.48, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.62]} />
           <meshStandardMaterial
-            color="#d8b4fe"
-            emissive="#7c3aed"
-            emissiveIntensity={0.32}
+            color={bellColor}
+            emissive={bellEmissive}
+            emissiveIntensity={isLeader ? 0.45 : 0.32}
             roughness={0.42}
             transparent
-            opacity={0.86}
+            opacity={isLeader ? 0.9 : 0.86}
           />
         </mesh>
+        {isLeader && (
+          <mesh position={[0, 0.28, 0]}>
+            <sphereGeometry args={[0.08, 12, 8]} />
+            <meshStandardMaterial color="#fde68a" emissive="#f59e0b" emissiveIntensity={0.55} />
+          </mesh>
+        )}
       </group>
       {Array.from({ length: 10 }, (_, tentacleIndex) => {
         const angle = (tentacleIndex / 10) * Math.PI * 2;
@@ -307,9 +340,9 @@ function AnimatedJellyfish({ offset, index }: { offset: Vector3; index: number }
             <mesh position={[0, -0.28, 0]}>
               <cylinderGeometry args={[0.012, 0.006, 0.58, 7]} />
               <meshStandardMaterial
-                color="#c084fc"
-                emissive="#7e22ce"
-                emissiveIntensity={0.24}
+                color={tentacleColor}
+                emissive={tentacleEmissive}
+                emissiveIntensity={isLeader ? 0.32 : 0.24}
                 transparent
                 opacity={0.78}
               />
