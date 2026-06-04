@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { SimulationConfig } from "../sim/types";
 
 type ControlsPanelProps = {
@@ -17,6 +18,8 @@ const WEIGHT_CONTROLS: Array<{ key: WeightKey; label: string; min: number; max: 
 ];
 
 export function ControlsPanel({ config, onConfigChange, onReset }: ControlsPanelProps) {
+  const [isOpen, setIsOpen] = useState(true);
+
   const updateConfig = <Key extends keyof SimulationConfig>(
     key: Key,
     value: SimulationConfig[Key],
@@ -34,15 +37,38 @@ export function ControlsPanel({ config, onConfigChange, onReset }: ControlsPanel
     });
   };
 
+  if (!isOpen) {
+    return (
+      <button
+        className="settings-toggle icon-button"
+        type="button"
+        aria-label="Open settings"
+        onClick={() => setIsOpen(true)}
+      >
+        ⚙
+      </button>
+    );
+  }
+
   return (
-    <aside className="controls-panel">
-      <div>
-        <p className="eyebrow">Bikini Bottom ALife</p>
-        <h1>Perception-Driven Fish School</h1>
-        <p>
-          Each fish senses only nearby fish, the Krabby Patty, the jellyfish swarm, and the
-          simulation boundary. Bikini Bottom landmarks leave walkable space across the seafloor.
-        </p>
+    <aside className="controls-panel" aria-label="Simulation controls">
+      <div className="controls-panel-header">
+        <div>
+          <p className="eyebrow">Bikini Bottom ALife</p>
+          <h1>Perception-Driven Fish School</h1>
+          <p>
+            Each fish senses only nearby fish, the Krabby Patty, the jellyfish swarm, and the
+            simulation boundary. Bikini Bottom landmarks leave walkable space across the seafloor.
+          </p>
+        </div>
+        <button
+          className="controls-collapse-button icon-button"
+          type="button"
+          aria-label="Collapse settings"
+          onClick={() => setIsOpen(false)}
+        >
+          ×
+        </button>
       </div>
 
       <label>
