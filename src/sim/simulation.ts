@@ -9,6 +9,14 @@ import type {
   SimulationConfig,
   SimulationState,
 } from "./types";
+import {
+  GROUND_Y,
+  KRABBY_PATTY_COLLISION_HEIGHT,
+  KRABBY_PATTY_COLLISION_RADIUS,
+  KRABBY_PATTY_POSITION,
+  STATIC_GROUND_OBSTACLES,
+  type GroundObstacle,
+} from "./staticEnvironment";
 
 type FishGroupProfile = {
   species: FishSpecies;
@@ -34,9 +42,8 @@ const CHARACTERS: FishGroupProfile[] = [
 const FISH_GROUPS: FishGroupProfile[] = [...FISH_SCHOOLS, ...CHARACTERS];
 
 const FLOOR_CLEARANCE = 1.05;
-const GROUND_WALK_Y = -5;
+const GROUND_WALK_Y = GROUND_Y;
 const MIN_GROUND_SPEED = 1.2;
-const FOOD_COLLISION_RADIUS = 3.0;
 const CHARACTER_COLLISION_RADIUS = 0.5;
 export const HAZARD_SWARM_SIZE = 10;
 const HAZARD_LEADER_SPEED = 1.65;
@@ -67,7 +74,7 @@ export function createInitialState(config: SimulationConfig = defaultConfig): Si
   return {
     agents: createAgents(config.agentCount, config.bounds, 0, config.agentCount),
     food: {
-      position: new Vector3(5.5, -4.0, -1.6),
+      position: KRABBY_PATTY_POSITION.clone(),
       radius: 1.5,
     },
     hazard: createHazard(config.bounds),
@@ -103,6 +110,7 @@ export function stepSimulation(
 ): SimulationState {
   const dt = Math.min(deltaSeconds, 0.04);
   const hazard = updateHazard(state.hazard, config, dt, state.time + dt);
+  const groundObstacles = createGroundObstacles(state.food);
   const agents = state.agents.map((agent) => {
     const neighbors = senseNeighbors(agent, state.agents, config.perceptionRadius);
     const force = new Vector3();
@@ -130,9 +138,11 @@ export function stepSimulation(
     clampLength(velocity, config.maxSpeed);
     const position = agent.position.clone().addScaledVector(velocity, dt);
     constrainPosition(position, velocity, config);
-    keepOutOfFood(position, velocity, state.food.position);
+    keepOutOfGroundObstacles(position, velocity, groundObstacles, agent.groundWalk);
     if (agent.groundWalk) {
       position.y = GROUND_WALK_Y;
+    } else {
+      keepOutOfFood(position, velocity, state.food.position);
     }
 
     return {
@@ -150,6 +160,18 @@ export function stepSimulation(
     hazard,
     time: state.time + dt,
   };
+}
+
+function createGroundObstacles(food: FoodSource): GroundObstacle[] {
+  return [
+    {
+      id: "krabby-patty",
+      position: new Vector3(food.position.x, GROUND_Y, food.position.z),
+      radius: KRABBY_PATTY_COLLISION_RADIUS,
+      height: KRABBY_PATTY_COLLISION_HEIGHT,
+    },
+    ...STATIC_GROUND_OBSTACLES,
+  ];
 }
 
 function resolveCharacterCollisions(agents: FishAgent[]) {
@@ -645,7 +667,7 @@ function constrainPosition(position: Vector3, velocity: Vector3, config: Simulat
 function keepOutOfFood(position: Vector3, velocity: Vector3, foodCenter: Vector3) {
   const radial = position.clone().sub(foodCenter);
   const distSq = radial.lengthSq();
-  if (distSq >= FOOD_COLLISION_RADIUS * FOOD_COLLISION_RADIUS) {
+  if (distSq >= KRABBY_PATTY_COLLISION_RADIUS * KRABBY_PATTY_COLLISION_RADIUS) {
     return;
   }
   const dist = Math.sqrt(distSq);
@@ -654,11 +676,66 @@ function keepOutOfFood(position: Vector3, velocity: Vector3, foodCenter: Vector3
   } else {
     radial.divideScalar(dist);
   }
-  position.copy(foodCenter).addScaledVector(radial, FOOD_COLLISION_RADIUS);
+  position.copy(foodCenter).addScaledVector(radial, KRABBY_PATTY_COLLISION_RADIUS);
   const awayComp = velocity.dot(radial);
   if (awayComp < 0) {
     velocity.addScaledVector(radial, -awayComp);
   }
+}
+
+function keepOutOfGroundObstacles(
+  position: Vector3,
+  velocity: Vector3,
+  obstacles: GroundObstacle[],
+  groundLocked: boolean,
+) {
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const obstacle of obstacles) {
+      keepOutOfGroundObstacle(position, velocity, obstacle, groundLocked);
+    }
+  }
+}
+
+function keepOutOfGroundObstacle(
+  position: Vector3,
+  velocity: Vector3,
+  obstacle: GroundObstacle,
+  groundLocked: boolean,
+) {
+  if (!groundLocked && !isInsideObstacleHeight(position, obstacle)) {
+    return;
+  }
+
+  const radial = new Vector3(
+    position.x - obstacle.position.x,
+    0,
+    position.z - obstacle.position.z,
+  );
+  const distSq = radial.x * radial.x + radial.z * radial.z;
+
+  if (distSq >= obstacle.radius * obstacle.radius) {
+    return;
+  }
+
+  const distance = Math.sqrt(distSq);
+  if (distance < 1e-4) {
+    radial.set(1, 0, 0);
+  } else {
+    radial.divideScalar(distance);
+  }
+
+  position.x = obstacle.position.x + radial.x * obstacle.radius;
+  position.z = obstacle.position.z + radial.z * obstacle.radius;
+
+  const inwardSpeed = velocity.x * radial.x + velocity.z * radial.z;
+  if (inwardSpeed < 0) {
+    velocity.x -= radial.x * inwardSpeed;
+    velocity.z -= radial.z * inwardSpeed;
+  }
+}
+
+function isInsideObstacleHeight(position: Vector3, obstacle: GroundObstacle): boolean {
+  return position.y >= obstacle.position.y && position.y <= obstacle.position.y + obstacle.height;
 }
 
 function enforceMinHorizSpeed(velocity: Vector3, minSpeed: number) {

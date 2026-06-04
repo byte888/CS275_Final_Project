@@ -34,6 +34,7 @@ export default function App() {
       <section className="status-card" aria-label="Simulation summary">
         <strong>{config.agentCount}</strong> autonomous fish
         <span>Krabby Patty attractor</span>
+        <span>Bikini Bottom landmarks</span>
         <span>Moving jellyfish hazard</span>
       </section>
     </main>

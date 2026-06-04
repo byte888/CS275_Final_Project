@@ -2,7 +2,7 @@ import { Clone, Environment, Float, OrbitControls, Text, useAnimations, useGLTF 
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { BoxGeometry, Group, Vector3 } from "three";
+import { Box3, BoxGeometry, Group, Vector3 } from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
   createInitialState,
@@ -11,6 +11,7 @@ import {
   resizePopulation,
   stepSimulation,
 } from "../sim/simulation";
+import { STATIC_SCENE_OBJECTS, type StaticSceneObject } from "../sim/staticEnvironment";
 import type { FishSpecies, SimulationConfig, SimulationState } from "../sim/types";
 
 type SimulationSceneProps = {
@@ -105,6 +106,7 @@ function SimulationWorld({ config }: SimulationSceneProps) {
     <>
       <Seafloor />
       <BoundaryBox bounds={config.bounds} />
+      <StaticGroundObjects />
       <FoodMesh position={stateRef.current.food.position} />
       <HazardSwarm stateRef={stateRef} />
       <FishSchool agentMapRef={agentMapRef} agentIds={agentIds} />
@@ -194,6 +196,45 @@ function FishMesh({
       >
         <primitive object={clonedScene} />
       </group>
+    </group>
+  );
+}
+
+function StaticGroundObjects() {
+  return (
+    <>
+      {STATIC_SCENE_OBJECTS.map((object) => (
+        <StaticGroundObject key={object.id} object={object} />
+      ))}
+    </>
+  );
+}
+
+function StaticGroundObject({ object }: { object: StaticSceneObject }) {
+  const model = useGLTF(object.modelPath);
+  const modelTransform = useMemo(() => {
+    const box = new Box3().setFromObject(model.scene);
+    const center = new Vector3();
+    box.getCenter(center);
+
+    return {
+      offset: new Vector3(
+        -center.x * object.scale,
+        -box.min.y * object.scale,
+        -center.z * object.scale,
+      ),
+    };
+  }, [model.scene, object.scale]);
+
+  return (
+    <group position={object.position} rotation={[0, object.rotationY, 0]}>
+      <Clone
+        object={model.scene}
+        scale={object.scale}
+        position={modelTransform.offset}
+        castShadow
+        receiveShadow
+      />
     </group>
   );
 }
@@ -420,5 +461,6 @@ useGLTF.preload("/models/downloaded/Burger.glb");
 useGLTF.preload("/models/downloaded/spongebob.glb");
 useGLTF.preload("/models/downloaded/patrick.glb");
 useGLTF.preload("/models/downloaded/squidward.glb");
+STATIC_SCENE_OBJECTS.forEach((object) => useGLTF.preload(object.modelPath));
 
 export { defaultConfig };

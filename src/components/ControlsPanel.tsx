@@ -41,7 +41,7 @@ export function ControlsPanel({ config, onConfigChange, onReset }: ControlsPanel
         <h1>Perception-Driven Fish School</h1>
         <p>
           Each fish senses only nearby fish, the Krabby Patty, the jellyfish swarm, and the
-          simulation boundary. Local steering rules combine into visible schooling and avoidance.
+          simulation boundary. Bikini Bottom landmarks leave walkable space across the seafloor.
         </p>
       </div>
 
