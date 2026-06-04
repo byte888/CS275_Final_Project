@@ -17,6 +17,7 @@ export type SimulationConfig = {
   maxForce: number;
   bounds: Vector3;
   weights: BehaviorWeights;
+  showStatusDots: boolean;
 };
 
 export type FishSpecies =
@@ -36,6 +37,7 @@ export type FishAgent = {
   species: FishSpecies;
   groupId: number;
   groundWalk: boolean;
+  hunger: number;
 };
 
 export type FoodSource = {
@@ -50,7 +52,16 @@ export type Hazard = {
   leaderPosition: Vector3;
   leaderVelocity: Vector3;
   targetPosition: Vector3;
+  nextBaitVisitTime: number;
+  baitTargetActive: boolean;
   members: HazardMember[];
+};
+
+export type FishSchoolBehaviorState = {
+  groupId: number;
+  wanderTarget: Vector3;
+  nextWanderTargetTime: number;
+  targetMode: "explore" | "avoid-food" | "food-loiter";
 };
 
 export type HazardMember = {
@@ -66,6 +77,7 @@ export type SimulationState = {
   agents: FishAgent[];
   food: FoodSource;
   hazard: Hazard;
+  schoolBehavior: FishSchoolBehaviorState[];
   time: number;
 };
 

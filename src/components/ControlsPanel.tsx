@@ -115,6 +115,15 @@ export function ControlsPanel({ config, onConfigChange, onReset }: ControlsPanel
         </label>
       ))}
 
+      <button
+        className="toggle-button"
+        type="button"
+        aria-pressed={config.showStatusDots}
+        onClick={() => updateConfig("showStatusDots", !config.showStatusDots)}
+      >
+        Status dots {config.showStatusDots ? "On" : "Off"}
+      </button>
+
       <button type="button" onClick={onReset}>
         Reset simulation
       </button>

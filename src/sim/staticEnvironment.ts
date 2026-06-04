@@ -19,8 +19,8 @@ export type StaticSceneObject = {
 
 export const GROUND_Y = -5;
 export const KRABBY_PATTY_POSITION = new Vector3(5.15, -4.0, 1.0);
-export const KRABBY_PATTY_COLLISION_RADIUS = 3.0;
-export const KRABBY_PATTY_COLLISION_HEIGHT = 3.0;
+export const KRABBY_PATTY_COLLISION_RADIUS = 2.75;
+export const KRABBY_PATTY_COLLISION_HEIGHT = 2.5;
 
 const FIXED_BUILDINGS: StaticSceneObject[] = [
   {
@@ -79,10 +79,7 @@ const FIXED_BUILDINGS: StaticSceneObject[] = [
   },
 ];
 
-
-export const STATIC_SCENE_OBJECTS: StaticSceneObject[] = [
-  ...FIXED_BUILDINGS
-];
+export const STATIC_SCENE_OBJECTS: StaticSceneObject[] = [...FIXED_BUILDINGS];
 
 export const STATIC_GROUND_OBSTACLES: GroundObstacle[] = STATIC_SCENE_OBJECTS.map(
   ({ id, position, collisionRadius, collisionHeight }) => ({

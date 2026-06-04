@@ -1,6 +1,7 @@
 import { Vector3 } from "three";
 import type {
   FishAgent,
+  FishSchoolBehaviorState,
   FishSpecies,
   FoodSource,
   Hazard,
@@ -51,10 +52,33 @@ const HAZARD_LEADER_MAX_FORCE = 1.4;
 const HAZARD_FOLLOWER_MAX_SPEED = 2.2;
 const HAZARD_FOLLOW_STIFFNESS = 2.0;
 const HAZARD_TARGET_REACHED_RADIUS = 1.3;
+const HAZARD_BAIT_REACHED_RADIUS = 1.65;
+const HAZARD_BAIT_HEIGHT_OFFSET = 1.8;
+const HAZARD_BAIT_MIN_INTERVAL = 30;
+const HAZARD_BAIT_MAX_INTERVAL = 45;
+const CROSS_SPECIES_SEPARATION_RADIUS_MULTIPLIER = 2.55;
+const CROSS_SPECIES_SEPARATION_SPEED_SCALE = 1.35;
+const FISH_WANDER_MIN_INTERVAL = 8;
+const FISH_WANDER_MAX_INTERVAL = 18;
+const FISH_WANDER_REACHED_RADIUS = 1.7;
+const FISH_WANDER_WEIGHT = 0.42;
+const FISH_FEEDING_RADIUS = KRABBY_PATTY_COLLISION_RADIUS + 1.1;
+const FISH_INITIAL_HUNGER_MIN = 0.62;
+const FISH_INITIAL_HUNGER_MAX = 1;
+const FISH_HUNGER_RECOVERY_PER_SECOND = 0.034;
+const FISH_FEED_HUNGER_DROP_PER_SECOND = 0.16;
+const FISH_LOW_HUNGER_WANDER_BOOST = 0.85;
+const FISH_FULL_HUNGER_THRESHOLD = 0;
+const FISH_FULL_FOOD_DESIRE = 0.5;
+const FISH_FOOD_LOITER_WEIGHT_THRESHOLD = 2.0;
+const FISH_FOOD_LOITER_RADIUS_MIN = KRABBY_PATTY_COLLISION_RADIUS + 0.45;
+const FISH_FOOD_LOITER_RADIUS_MAX = FISH_FEEDING_RADIUS - 0.2;
+const FISH_FOOD_AVOID_TARGET_RADIUS = FISH_FEEDING_RADIUS * 1.8;
 const UP_AXIS = new Vector3(0, 1, 0);
 
 export const defaultConfig: SimulationConfig = {
   agentCount: 48,
+  showStatusDots: true,
   perceptionRadius: 4.2,
   separationRadius: 1.1,
   maxSpeed: 3.2,
@@ -78,6 +102,7 @@ export function createInitialState(config: SimulationConfig = defaultConfig): Si
       radius: 1.5,
     },
     hazard: createHazard(config.bounds),
+    schoolBehavior: createSchoolBehaviorStates(config.bounds, 0),
     time: 0,
   };
 }
@@ -109,16 +134,27 @@ export function stepSimulation(
   deltaSeconds: number,
 ): SimulationState {
   const dt = Math.min(deltaSeconds, 0.04);
-  const hazard = updateHazard(state.hazard, config, dt, state.time + dt);
+  const time = state.time + dt;
+  const hazard = updateHazard(state.hazard, config, dt, time, state.food.position);
+  const schoolBehavior = updateSchoolBehaviorStates(
+    state.schoolBehavior,
+    state.agents,
+    state.food,
+    config,
+    time,
+  );
+  const schoolBehaviorByGroup = new Map(schoolBehavior.map((school) => [school.groupId, school]));
   const groundObstacles = createGroundObstacles(state.food);
   const agents = state.agents.map((agent) => {
     const neighbors = senseNeighbors(agent, state.agents, config.perceptionRadius);
+    const school = schoolBehaviorByGroup.get(agent.groupId);
     const force = new Vector3();
 
-    force.addScaledVector(attractFood(agent, state.food, config), config.weights.food);
+    force.addScaledVector(attractFood(agent, state.food, config), config.weights.food * foodDesire(agent));
     force.addScaledVector(avoidHazard(agent, hazard, config), config.weights.hazard);
     force.addScaledVector(separate(agent, neighbors, config), config.weights.separation);
     if (!agent.groundWalk) {
+      force.addScaledVector(wander(agent, school, config), wanderWeight(agent));
       force.addScaledVector(align(agent, neighbors, config), config.weights.alignment);
       force.addScaledVector(cohere(agent, neighbors, config), config.weights.cohesion);
     }
@@ -144,11 +180,13 @@ export function stepSimulation(
     } else {
       keepOutOfFood(position, velocity, state.food.position);
     }
+    const hunger = updateHunger(agent.hunger, position, state.food, dt);
 
     return {
       ...agent,
       position,
       velocity,
+      hunger,
     };
   });
 
@@ -158,7 +196,8 @@ export function stepSimulation(
     ...state,
     agents,
     hazard,
-    time: state.time + dt,
+    schoolBehavior,
+    time,
   };
 }
 
@@ -272,8 +311,94 @@ function createAgents(count: number, bounds: Vector3, startId = 0, totalCount = 
       species: group.species,
       groupId,
       groundWalk: group.groundWalk ?? false,
+      hunger: randomBetween(FISH_INITIAL_HUNGER_MIN, FISH_INITIAL_HUNGER_MAX),
     };
   });
+}
+
+function createSchoolBehaviorStates(bounds: Vector3, time: number): FishSchoolBehaviorState[] {
+  return FISH_SCHOOLS.map((group, groupId) => ({
+    groupId,
+    wanderTarget: pickFishWanderTarget(bounds, group.origin),
+    nextWanderTargetTime: time + randomFishWanderInterval(),
+    targetMode: "explore",
+  }));
+}
+
+function updateSchoolBehaviorStates(
+  schoolBehavior: FishSchoolBehaviorState[] | undefined,
+  agents: FishAgent[],
+  food: FoodSource,
+  config: SimulationConfig,
+  time: number,
+): FishSchoolBehaviorState[] {
+  const existingByGroup = new Map((schoolBehavior ?? []).map((school) => [school.groupId, school]));
+
+  return FISH_SCHOOLS.map((group, groupId) => {
+    const center = schoolCenter(agents, groupId) ?? group.origin;
+    const existing = existingByGroup.get(groupId);
+    const state: FishSchoolBehaviorState = existing
+      ? {
+          ...existing,
+          wanderTarget: existing.wanderTarget.clone(),
+        }
+      : {
+          groupId,
+          wanderTarget: pickFishWanderTarget(config.bounds, center),
+          nextWanderTargetTime: time + randomFishWanderInterval(),
+          targetMode: "explore",
+        };
+
+    const fullSchoolNearFood =
+      schoolIsFull(agents, groupId) &&
+      center.distanceTo(food.position) <= FISH_FEEDING_RADIUS;
+    const targetReached = center.distanceTo(state.wanderTarget) <= FISH_WANDER_REACHED_RADIUS;
+    const targetExpired = time >= state.nextWanderTargetTime || targetReached;
+    const targetTooCloseToFood =
+      state.wanderTarget.distanceTo(food.position) < FISH_FOOD_AVOID_TARGET_RADIUS;
+    const shouldLoiterNearFood =
+      fullSchoolNearFood && config.weights.food >= FISH_FOOD_LOITER_WEIGHT_THRESHOLD;
+    const shouldAvoidFood = fullSchoolNearFood && !shouldLoiterNearFood;
+
+    if (shouldLoiterNearFood && (state.targetMode !== "food-loiter" || targetExpired)) {
+      state.wanderTarget = pickFishFoodLoiterTarget(food.position, config.bounds);
+      state.nextWanderTargetTime = time + randomFishWanderInterval();
+      state.targetMode = "food-loiter";
+    } else if (
+      shouldAvoidFood &&
+      (state.targetMode !== "avoid-food" || targetExpired || targetTooCloseToFood)
+    ) {
+      state.wanderTarget = pickFishWanderTarget(config.bounds, center, food.position);
+      state.nextWanderTargetTime = time + randomFishWanderInterval();
+      state.targetMode = "avoid-food";
+    } else if (!fullSchoolNearFood && targetExpired) {
+      state.wanderTarget = pickFishWanderTarget(config.bounds, center);
+      state.nextWanderTargetTime = time + randomFishWanderInterval();
+      state.targetMode = "explore";
+    }
+
+    return state;
+  });
+}
+
+function schoolCenter(agents: FishAgent[], groupId: number): Vector3 | null {
+  const members = agents.filter((agent) => agent.groupId === groupId && !agent.groundWalk);
+  if (members.length === 0) {
+    return null;
+  }
+
+  return members
+    .reduce((center, agent) => center.add(agent.position), new Vector3())
+    .divideScalar(members.length);
+}
+
+function schoolIsFull(agents: FishAgent[], groupId: number): boolean {
+  const members = agents.filter((agent) => agent.groupId === groupId && !agent.groundWalk);
+  if (members.length === 0) {
+    return false;
+  }
+
+  return members.every((agent) => normalizedHunger(agent) <= FISH_FULL_HUNGER_THRESHOLD);
 }
 
 function createHazard(bounds: Vector3): Hazard {
@@ -292,6 +417,8 @@ function createHazard(bounds: Vector3): Hazard {
     leaderPosition,
     leaderVelocity,
     targetPosition: pickHazardTarget(bounds, leaderPosition),
+    nextBaitVisitTime: randomHazardBaitInterval(),
+    baitTargetActive: false,
     members: createHazardMembers(leaderPosition),
   };
 }
@@ -301,12 +428,19 @@ function updateHazard(
   config: SimulationConfig,
   dt: number,
   time: number,
+  foodPosition: Vector3,
 ): Hazard {
   const leaderPosition = (hazard.leaderPosition ?? hazard.position).clone();
   const leaderVelocity = (hazard.leaderVelocity ?? randomDirection().multiplyScalar(HAZARD_LEADER_SPEED)).clone();
   let targetPosition = (hazard.targetPosition ?? pickHazardTarget(config.bounds, leaderPosition)).clone();
+  let nextBaitVisitTime = hazard.nextBaitVisitTime ?? time + randomHazardBaitInterval();
+  let baitTargetActive = hazard.baitTargetActive ?? false;
+  const baitPosition = pickHazardBaitTarget(foodPosition, config.bounds);
 
-  if (leaderPosition.distanceTo(targetPosition) < HAZARD_TARGET_REACHED_RADIUS) {
+  if (baitTargetActive || time >= nextBaitVisitTime) {
+    baitTargetActive = true;
+    targetPosition = baitPosition;
+  } else if (leaderPosition.distanceTo(targetPosition) < HAZARD_TARGET_REACHED_RADIUS) {
     targetPosition = pickHazardTarget(config.bounds, leaderPosition);
   }
 
@@ -333,7 +467,12 @@ function updateHazard(
   leaderPosition.addScaledVector(leaderVelocity, dt);
   constrainHazardPosition(leaderPosition, leaderVelocity, config.bounds);
 
-  if (leaderPosition.distanceTo(targetPosition) < HAZARD_TARGET_REACHED_RADIUS) {
+  const reachedRadius = baitTargetActive ? HAZARD_BAIT_REACHED_RADIUS : HAZARD_TARGET_REACHED_RADIUS;
+  if (leaderPosition.distanceTo(targetPosition) < reachedRadius) {
+    if (baitTargetActive) {
+      baitTargetActive = false;
+      nextBaitVisitTime = time + randomHazardBaitInterval();
+    }
     targetPosition = pickHazardTarget(config.bounds, leaderPosition);
   }
 
@@ -354,6 +493,8 @@ function updateHazard(
     leaderPosition,
     leaderVelocity,
     targetPosition,
+    nextBaitVisitTime,
+    baitTargetActive,
     members,
     phase: time,
   };
@@ -465,6 +606,73 @@ function pickHazardTarget(bounds: Vector3, currentPosition?: Vector3): Vector3 {
   );
 }
 
+function pickHazardBaitTarget(foodPosition: Vector3, bounds: Vector3): Vector3 {
+  const min = hazardMinBounds(bounds);
+  const max = hazardMaxBounds(bounds);
+
+  return new Vector3(
+    clampNumber(foodPosition.x, min.x, max.x),
+    clampNumber(foodPosition.y + HAZARD_BAIT_HEIGHT_OFFSET, min.y, max.y),
+    clampNumber(foodPosition.z, min.z, max.z),
+  );
+}
+
+function randomHazardBaitInterval(): number {
+  return randomBetween(HAZARD_BAIT_MIN_INTERVAL, HAZARD_BAIT_MAX_INTERVAL);
+}
+
+function pickFishWanderTarget(bounds: Vector3, currentPosition: Vector3, avoidPosition?: Vector3): Vector3 {
+  const min = fishMinBounds(bounds);
+  const max = fishMaxBounds(bounds);
+  const minTravelDistance = bounds.length() * 0.28;
+  const avoidDistance = FISH_FEEDING_RADIUS * 1.8;
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const target = new Vector3(
+      randomBetween(min.x, max.x),
+      randomBetween(min.y, max.y),
+      randomBetween(min.z, max.z),
+    );
+    const farEnough = target.distanceTo(currentPosition) >= minTravelDistance;
+    const avoidsFood = !avoidPosition || target.distanceTo(avoidPosition) >= avoidDistance;
+
+    if (farEnough && avoidsFood) {
+      return target;
+    }
+  }
+
+  return new Vector3(
+    randomBetween(min.x, max.x),
+    randomBetween(min.y, max.y),
+    randomBetween(min.z, max.z),
+  );
+}
+
+function pickFishFoodLoiterTarget(foodPosition: Vector3, bounds: Vector3): Vector3 {
+  const min = fishMinBounds(bounds);
+  const max = fishMaxBounds(bounds);
+  const angle = Math.random() * Math.PI * 2;
+  const radius = randomBetween(FISH_FOOD_LOITER_RADIUS_MIN, FISH_FOOD_LOITER_RADIUS_MAX);
+
+  return new Vector3(
+    clampNumber(foodPosition.x + Math.cos(angle) * radius, min.x, max.x),
+    clampNumber(foodPosition.y + randomBetween(-0.65, 0.95), min.y, max.y),
+    clampNumber(foodPosition.z + Math.sin(angle) * radius, min.z, max.z),
+  );
+}
+
+function fishMinBounds(bounds: Vector3): Vector3 {
+  return new Vector3(-bounds.x * 0.86, -bounds.y + FLOOR_CLEARANCE, -bounds.z * 0.86);
+}
+
+function fishMaxBounds(bounds: Vector3): Vector3 {
+  return new Vector3(bounds.x * 0.86, bounds.y * 0.82, bounds.z * 0.86);
+}
+
+function randomFishWanderInterval(): number {
+  return randomBetween(FISH_WANDER_MIN_INTERVAL, FISH_WANDER_MAX_INTERVAL);
+}
+
 function constrainHazardPosition(position: Vector3, velocity: Vector3, bounds: Vector3) {
   const min = hazardMinBounds(bounds);
   const max = hazardMaxBounds(bounds);
@@ -512,8 +720,48 @@ function steerToward(agent: FishAgent, target: Vector3, maxSpeed: number): Vecto
   return desired.normalize().multiplyScalar(maxSpeed).sub(agent.velocity);
 }
 
+function wander(
+  agent: FishAgent,
+  school: FishSchoolBehaviorState | undefined,
+  config: SimulationConfig,
+): Vector3 {
+  if (!school) {
+    return new Vector3();
+  }
+
+  return steerToward(agent, school.wanderTarget, config.maxSpeed * 0.72);
+}
+
+function wanderWeight(agent: FishAgent): number {
+  return FISH_WANDER_WEIGHT + (1 - normalizedHunger(agent)) * FISH_LOW_HUNGER_WANDER_BOOST;
+}
+
+function foodDesire(agent: FishAgent): number {
+  return FISH_FULL_FOOD_DESIRE + (1 - FISH_FULL_FOOD_DESIRE) * normalizedHunger(agent);
+}
+
+function updateHunger(
+  currentHunger: number | undefined,
+  position: Vector3,
+  food: FoodSource,
+  dt: number,
+): number {
+  const hunger = currentHunger ?? randomBetween(FISH_INITIAL_HUNGER_MIN, FISH_INITIAL_HUNGER_MAX);
+  const nearFood = position.distanceTo(food.position) <= FISH_FEEDING_RADIUS;
+  const delta = nearFood
+    ? -FISH_FEED_HUNGER_DROP_PER_SECOND * dt
+    : FISH_HUNGER_RECOVERY_PER_SECOND * dt;
+
+  return clampNumber(hunger + delta, 0, 1);
+}
+
+function normalizedHunger(agent: FishAgent): number {
+  return clampNumber(agent.hunger ?? FISH_INITIAL_HUNGER_MAX, 0, 1);
+}
+
 function attractFood(agent: FishAgent, food: FoodSource, config: SimulationConfig): Vector3 {
   const distance = agent.position.distanceTo(food.position);
+  const attractionRange = config.perceptionRadius + 1.4;
 
   if (distance < food.radius) {
     if (distance === 0) return new Vector3();
@@ -522,7 +770,6 @@ function attractFood(agent: FishAgent, food: FoodSource, config: SimulationConfi
     return away.multiplyScalar(config.maxSpeed * (1 + urgency * 2)).sub(agent.velocity);
   }
 
-  const attractionRange = config.perceptionRadius + 1.4;
   if (distance > attractionRange) {
     return new Vector3();
   }
@@ -551,19 +798,27 @@ function separate(
 ): Vector3 {
   const steer = new Vector3();
   let count = 0;
+  let hasDifferentSpeciesNeighbor = false;
 
   for (const { agent: neighbor, distance } of neighbors) {
-    if (distance > 0 && distance < config.separationRadius) {
-      const groupBuffer = neighbor.groupId === agent.groupId ? 0.72 : 1.35;
+    const sameGroup = neighbor.groupId === agent.groupId;
+    const separationRadius = sameGroup
+      ? config.separationRadius
+      : Math.min(config.perceptionRadius, config.separationRadius * CROSS_SPECIES_SEPARATION_RADIUS_MULTIPLIER);
+
+    if (distance > 0 && distance < separationRadius) {
+      const urgency = 1 - distance / separationRadius;
+      const groupBuffer = sameGroup ? 0.72 : 2.1 + urgency * 1.4;
       steer.add(
         agent.position
           .clone()
           .sub(neighbor.position)
           .normalize()
-          .divideScalar(distance)
+          .divideScalar(Math.max(distance, 0.25))
           .multiplyScalar(groupBuffer),
       );
       count += 1;
+      hasDifferentSpeciesNeighbor ||= !sameGroup;
     }
   }
 
@@ -571,7 +826,10 @@ function separate(
     return steer;
   }
 
-  steer.divideScalar(count).normalize().multiplyScalar(config.maxSpeed).sub(agent.velocity);
+  const targetSpeed = hasDifferentSpeciesNeighbor
+    ? config.maxSpeed * CROSS_SPECIES_SEPARATION_SPEED_SCALE
+    : config.maxSpeed;
+  steer.divideScalar(count).normalize().multiplyScalar(targetSpeed).sub(agent.velocity);
   return steer;
 }
 
@@ -618,10 +876,12 @@ function cohere(
 }
 
 function weightedGroupNeighbors(agent: FishAgent, neighbors: NeighborSample[]) {
-  const samples = neighbors.map((sample) => ({
-    ...sample,
-    weight: sample.agent.groupId === agent.groupId ? 2.4 : 0.35,
-  }));
+  const samples = neighbors
+    .filter((sample) => sample.agent.groupId === agent.groupId)
+    .map((sample) => ({
+      ...sample,
+      weight: 1,
+    }));
   const totalWeight = samples.reduce((sum, sample) => sum + sample.weight, 0);
 
   return { samples, totalWeight };
@@ -766,6 +1026,10 @@ function clampLength(vector: Vector3, maxLength: number): Vector3 {
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function randomDirection(): Vector3 {

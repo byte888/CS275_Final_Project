@@ -2,7 +2,7 @@ import { Clone, Environment, Float, OrbitControls, Text, useAnimations, useGLTF 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { Box3, BoxGeometry, Group, Vector3 } from "three";
+import { Box3, BoxGeometry, Group, Mesh, Vector3 } from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import {
@@ -24,28 +24,36 @@ type FishStyle = {
   modelPath: string;
   modelScale: number;
   modelOffsetY?: number;
+  hungerIndicatorY?: number;
 };
+
+const HUNGER_INDICATOR_THRESHOLD = 0.6;
+const HUNGER_INDICATOR_RADIUS = 0.05;
 
 const FISH_STYLES: Record<FishSpecies, FishStyle> = {
   reef: {
     swimAmplitude: 0.2,
     modelPath: "/models/downloaded/Fish.glb",
     modelScale: 0.08,
+    hungerIndicatorY: 0.27,
   },
   blue: {
     swimAmplitude: 0.48,
     modelPath: "/models/downloaded/Fish%20(1).glb",
     modelScale: 0.08,
+    hungerIndicatorY: 0.33,
   },
   puffer: {
     swimAmplitude: 0.24,
     modelPath: "/models/downloaded/Blowfish.glb",
     modelScale: 0.05,
+    hungerIndicatorY: 0.58,
   },
   long: {
     swimAmplitude: 0.56,
     modelPath: "/models/downloaded/Fish%20(2).glb",
     modelScale: 0.2,
+    hungerIndicatorY: 0.4,
   },
   spongebob: {
     swimAmplitude: 0.35,
@@ -210,7 +218,11 @@ function SimulationWorld({ config }: SimulationSceneProps) {
       <StaticGroundObjects />
       <FoodMesh position={stateRef.current.food.position} />
       <HazardSwarm stateRef={stateRef} />
-      <FishSchool agentMapRef={agentMapRef} agentIds={agentIds} />
+      <FishSchool
+        agentMapRef={agentMapRef}
+        agentIds={agentIds}
+        showStatusDots={config.showStatusDots}
+      />
       <Bubbles />
     </>
   );
@@ -219,14 +231,21 @@ function SimulationWorld({ config }: SimulationSceneProps) {
 function FishSchool({
   agentMapRef,
   agentIds,
+  showStatusDots,
 }: {
   agentMapRef: MutableRefObject<Map<number, SimulationState["agents"][number]>>;
   agentIds: number[];
+  showStatusDots: boolean;
 }) {
   return (
     <>
       {agentIds.map((agentId) => (
-        <FishMesh key={agentId} agentId={agentId} agentMapRef={agentMapRef} />
+        <FishMesh
+          key={agentId}
+          agentId={agentId}
+          agentMapRef={agentMapRef}
+          showStatusDots={showStatusDots}
+        />
       ))}
     </>
   );
@@ -235,9 +254,11 @@ function FishSchool({
 function FishMesh({
   agentId,
   agentMapRef,
+  showStatusDots,
 }: {
   agentId: number;
   agentMapRef: MutableRefObject<Map<number, SimulationState["agents"][number]>>;
+  showStatusDots: boolean;
 }) {
   const ref = useRef<Group>(null);
   const modelRef = useRef<Group>(null);
@@ -247,6 +268,7 @@ function FishMesh({
   const clonedScene = useMemo(() => cloneSkeleton(fishModel.scene), [fishModel.scene]);
   const { actions } = useAnimations(fishModel.animations, modelRef);
   const phaseOffset = useMemo(() => agentId * 1.913, [agentId]);
+  const showHungerIndicator = showStatusDots && style.hungerIndicatorY !== undefined;
 
   useEffect(() => {
     for (const action of Object.values(actions)) {
@@ -297,6 +319,63 @@ function FishMesh({
       >
         <primitive object={clonedScene} />
       </group>
+      {showHungerIndicator && (
+        <HungerIndicator
+          agentId={agentId}
+          agentMapRef={agentMapRef}
+          positionY={style.hungerIndicatorY ?? 0.44}
+        />
+      )}
+    </group>
+  );
+}
+
+function HungerIndicator({
+  agentId,
+  agentMapRef,
+  positionY,
+}: {
+  agentId: number;
+  agentMapRef: MutableRefObject<Map<number, SimulationState["agents"][number]>>;
+  positionY: number;
+}) {
+  const ref = useRef<Group>(null);
+  const hungryDotRef = useRef<Mesh>(null);
+  const fedDotRef = useRef<Mesh>(null);
+
+  useFrame(({ clock }) => {
+    if (!ref.current) {
+      return;
+    }
+
+    const agent = agentMapRef.current.get(agentId);
+    if (!agent) {
+      ref.current.visible = false;
+      return;
+    }
+
+    const hungry = agent.hunger >= HUNGER_INDICATOR_THRESHOLD;
+    ref.current.visible = true;
+    ref.current.position.y = positionY + Math.sin(clock.elapsedTime * 3.5 + agentId) * 0.025;
+
+    if (hungryDotRef.current) {
+      hungryDotRef.current.visible = hungry;
+    }
+    if (fedDotRef.current) {
+      fedDotRef.current.visible = !hungry;
+    }
+  });
+
+  return (
+    <group ref={ref} position={[0, positionY, 0]}>
+      <mesh ref={hungryDotRef} renderOrder={10}>
+        <sphereGeometry args={[HUNGER_INDICATOR_RADIUS, 16, 10]} />
+        <meshBasicMaterial color="#ef4444" depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh ref={fedDotRef} renderOrder={10}>
+        <sphereGeometry args={[HUNGER_INDICATOR_RADIUS, 16, 10]} />
+        <meshBasicMaterial color="#22c55e" depthWrite={false} toneMapped={false} />
+      </mesh>
     </group>
   );
 }

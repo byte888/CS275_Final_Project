@@ -82,6 +82,16 @@
   background: #fef08a;
 }
 
+.toggle-button[aria-pressed="false"] {
+  color: #e0f2fe;
+  background: rgb(15 23 42 / 0.72);
+  outline: 1px solid rgb(186 230 253 / 0.26);
+}
+
+.toggle-button[aria-pressed="false"]:hover {
+  background: rgb(30 41 59 / 0.82);
+}
+
 .controls-collapse-button {
   flex: 0 0 auto;
 }
