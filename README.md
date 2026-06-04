@@ -86,12 +86,6 @@ src/
   main.tsx                 React entry point
 ```
 
-## Replacing Models
-
-The active fish and burger models are loaded from `public/models/downloaded/`. To replace them again, keep the same filenames there, or update the paths in `src/components/SimulationScene.tsx`.
-
-Recommended sources for permissively licensed models:
-
 - [Poly Pizza](https://poly.pizza/) for low-poly GLTF/GLB-style assets.
 - [Quaternius](https://quaternius.com/) for free game-ready packs.
 - [Kenney](https://kenney.nl/assets) for consistent game asset sets.
