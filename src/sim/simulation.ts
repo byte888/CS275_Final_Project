@@ -46,10 +46,18 @@ const FLOOR_CLEARANCE = 1.05;
 const GROUND_WALK_Y = GROUND_Y;
 const MIN_GROUND_SPEED = 1.2;
 const CHARACTER_COLLISION_RADIUS = 0.5;
+// Proactive obstacle avoidance: agents look this far ahead along their
+// velocity and steer LATERALLY (perpendicular to motion) when a cylinder is
+// in their predicted path. Lateral steering is what makes them slip through
+// gaps between obstacles instead of stalling head-on against one.
+const OBSTACLE_AVOID_LOOKAHEAD = 2.8;
+const OBSTACLE_AVOID_BUFFER = 0.55;
+const OBSTACLE_AVOID_WEIGHT = 1.0;
+
 export const HAZARD_SWARM_SIZE = 10;
-const HAZARD_LEADER_SPEED = 1.65;
+const HAZARD_LEADER_SPEED = 2.5;
 const HAZARD_LEADER_MAX_FORCE = 1.4;
-const HAZARD_FOLLOWER_MAX_SPEED = 2.2;
+const HAZARD_FOLLOWER_MAX_SPEED = 2.8;
 const HAZARD_FOLLOW_STIFFNESS = 2.0;
 const HAZARD_TARGET_REACHED_RADIUS = 1.3;
 const HAZARD_BAIT_REACHED_RADIUS = 1.65;
@@ -83,7 +91,7 @@ export const defaultConfig: SimulationConfig = {
   separationRadius: 1.1,
   maxSpeed: 3.2,
   maxForce: 3.6,
-  bounds: new Vector3(12, 5, 8),
+  bounds: new Vector3(15, 5, 11),
   weights: {
     food: 1.15,
     hazard: 2.8,
@@ -153,6 +161,7 @@ export function stepSimulation(
     force.addScaledVector(attractFood(agent, state.food, config), config.weights.food * foodDesire(agent));
     force.addScaledVector(avoidHazard(agent, hazard, config), config.weights.hazard);
     force.addScaledVector(separate(agent, neighbors, config), config.weights.separation);
+    force.addScaledVector(avoidGroundObstacles(agent, groundObstacles, config), OBSTACLE_AVOID_WEIGHT);
     if (!agent.groundWalk) {
       force.addScaledVector(wander(agent, school, config), wanderWeight(agent));
       force.addScaledVector(align(agent, neighbors, config), config.weights.alignment);
@@ -177,6 +186,15 @@ export function stepSimulation(
     keepOutOfGroundObstacles(position, velocity, groundObstacles, agent.groundWalk);
     if (agent.groundWalk) {
       position.y = GROUND_WALK_Y;
+      // If the snap-out chain plus collisions drained almost all horizontal
+      // motion, give a small lateral nudge so wide characters don't stall in
+      // a building corner. `MIN_GROUND_SPEED` is re-enforced next tick.
+      const speedSq = velocity.x * velocity.x + velocity.z * velocity.z;
+      if (speedSq < MIN_GROUND_SPEED * MIN_GROUND_SPEED * 0.25) {
+        const angle = Math.random() * Math.PI * 2;
+        velocity.x += Math.cos(angle) * MIN_GROUND_SPEED * 0.8;
+        velocity.z += Math.sin(angle) * MIN_GROUND_SPEED * 0.8;
+      }
     } else {
       keepOutOfFood(position, velocity, state.food.position);
     }
@@ -466,6 +484,8 @@ function updateHazard(
 
   leaderPosition.addScaledVector(leaderVelocity, dt);
   constrainHazardPosition(leaderPosition, leaderVelocity, config.bounds);
+  const burgerObstacle = createBurgerObstacle(foodPosition);
+  keepOutOfGroundObstacle(leaderPosition, leaderVelocity, burgerObstacle, false);
 
   const reachedRadius = baitTargetActive ? HAZARD_BAIT_REACHED_RADIUS : HAZARD_TARGET_REACHED_RADIUS;
   if (leaderPosition.distanceTo(targetPosition) < reachedRadius) {
@@ -485,6 +505,7 @@ function updateHazard(
     config.bounds,
     time,
     dt,
+    burgerObstacle,
   );
 
   return {
@@ -531,6 +552,7 @@ function updateHazardMembers(
   bounds: Vector3,
   time: number,
   dt: number,
+  burgerObstacle: GroundObstacle,
 ): HazardMember[] {
   const formationYaw = Math.sin(time * 0.17) * 0.55 + time * 0.08;
 
@@ -563,6 +585,7 @@ function updateHazardMembers(
     clampLength(velocity, HAZARD_FOLLOWER_MAX_SPEED);
     position.addScaledVector(velocity, dt);
     constrainHazardPosition(position, velocity, bounds);
+    keepOutOfGroundObstacle(position, velocity, burgerObstacle, false);
 
     return {
       ...member,
@@ -570,6 +593,15 @@ function updateHazardMembers(
       velocity,
     };
   });
+}
+
+function createBurgerObstacle(foodPosition: Vector3): GroundObstacle {
+  return {
+    id: "krabby-patty",
+    position: new Vector3(foodPosition.x, GROUND_Y, foodPosition.z),
+    radius: KRABBY_PATTY_COLLISION_RADIUS,
+    height: KRABBY_PATTY_COLLISION_HEIGHT,
+  };
 }
 
 function averageHazardPosition(members: HazardMember[]): Vector3 {
@@ -761,7 +793,12 @@ function normalizedHunger(agent: FishAgent): number {
 
 function attractFood(agent: FishAgent, food: FoodSource, config: SimulationConfig): Vector3 {
   const distance = agent.position.distanceTo(food.position);
-  const attractionRange = config.perceptionRadius + 1.4;
+  // Ground walkers (spongebob/patrick/squidward) have no wander force, so the
+  // burger must be able to pull them across the whole play area. Fish use the
+  // tighter perception-based range and rely on `wander` for exploration.
+  const attractionRange = agent.groundWalk
+    ? Math.hypot(config.bounds.x, config.bounds.z) * 2
+    : config.perceptionRadius + 1.4;
 
   if (distance < food.radius) {
     if (distance === 0) return new Vector3();
@@ -775,7 +812,10 @@ function attractFood(agent: FishAgent, food: FoodSource, config: SimulationConfi
   }
 
   const strength = 1 - distance / attractionRange;
-  return steerToward(agent, food.position, config.maxSpeed).multiplyScalar(0.35 + strength);
+  // Stronger constant floor for ground walkers so the pull doesn't fade to
+  // near-zero at the far edges of the expanded boundary.
+  const baseline = agent.groundWalk ? 0.85 : 0.35;
+  return steerToward(agent, food.position, config.maxSpeed).multiplyScalar(baseline + strength);
 }
 
 function avoidHazard(agent: FishAgent, hazard: Hazard, config: SimulationConfig): Vector3 {
@@ -941,6 +981,95 @@ function keepOutOfFood(position: Vector3, velocity: Vector3, foodCenter: Vector3
   if (awayComp < 0) {
     velocity.addScaledVector(radial, -awayComp);
   }
+}
+
+// Proactive steering: look ahead along the agent's horizontal velocity and
+// push it sideways around any cylinder in its predicted path. Returns a
+// steering force (desired velocity minus current), already restricted to the
+// XZ plane. Agents above/below an obstacle's height band are unaffected, so
+// fish flying over short buildings don't get spurious swerves.
+function avoidGroundObstacles(
+  agent: FishAgent,
+  obstacles: GroundObstacle[],
+  config: SimulationConfig,
+): Vector3 {
+  const steer = new Vector3();
+  const vx = agent.velocity.x;
+  const vz = agent.velocity.z;
+  const horizSpeed = Math.hypot(vx, vz);
+  if (horizSpeed < 0.05) {
+    return steer;
+  }
+
+  const fx = vx / horizSpeed;
+  const fz = vz / horizSpeed;
+  // Look further ahead when moving faster, so high-speed agents start their
+  // swerve earlier and don't crash into static cylinders.
+  const lookAhead = OBSTACLE_AVOID_LOOKAHEAD * (0.6 + horizSpeed / config.maxSpeed);
+
+  let accumX = 0;
+  let accumZ = 0;
+
+  for (const obstacle of obstacles) {
+    if (!isInsideObstacleHeight(agent.position, obstacle)) {
+      continue;
+    }
+
+    const dx = obstacle.position.x - agent.position.x;
+    const dz = obstacle.position.z - agent.position.z;
+
+    // Forward component (signed distance along velocity to obstacle center)
+    const forwardDot = dx * fx + dz * fz;
+    const reach = lookAhead + obstacle.radius;
+    if (forwardDot <= 0 || forwardDot > reach) {
+      continue; // behind us or too far ahead
+    }
+
+    // Lateral offset of obstacle center from our forward ray
+    const lateralX = dx - forwardDot * fx;
+    const lateralZ = dz - forwardDot * fz;
+    const lateralDist = Math.hypot(lateralX, lateralZ);
+    const clearance = obstacle.radius + OBSTACLE_AVOID_BUFFER;
+    if (lateralDist > clearance) {
+      continue; // already clears it on one side
+    }
+
+    // Unit vector pointing AWAY from the obstacle, perpendicular to velocity.
+    let perpX: number;
+    let perpZ: number;
+    if (lateralDist < 1e-4) {
+      // Dead-on: pick the side that's closer to "right" of the velocity
+      perpX = -fz;
+      perpZ = fx;
+    } else {
+      perpX = -lateralX / lateralDist;
+      perpZ = -lateralZ / lateralDist;
+    }
+
+    // Stronger when obstacle is closer ahead AND closer to the path centerline
+    const proximityAhead = 1 - forwardDot / reach;
+    const proximityLateral = 1 - lateralDist / clearance;
+    const strength = proximityAhead * proximityLateral;
+    accumX += perpX * strength;
+    accumZ += perpZ * strength;
+  }
+
+  if (accumX === 0 && accumZ === 0) {
+    return steer;
+  }
+
+  // Keep magnitude PROPORTIONAL to accumulated threat (don't normalize and
+  // re-saturate to maxSpeed). A single marginal threat with strength ~0.1
+  // should contribute a small push; only a head-on imminent obstacle (or
+  // multiple converging ones) should produce a maxSpeed-scale steer. This is
+  // what lets food/hazard forces still register when the agent merely passes
+  // near a building instead of running straight at one.
+  const desiredLen = Math.hypot(accumX, accumZ);
+  const desiredMag = Math.min(desiredLen, 1) * config.maxSpeed;
+  const inv = desiredMag / desiredLen;
+  steer.x = accumX * inv - vx * (desiredMag / config.maxSpeed);
+  steer.z = accumZ * inv - vz * (desiredMag / config.maxSpeed);
+  return steer;
 }
 
 function keepOutOfGroundObstacles(

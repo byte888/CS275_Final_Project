@@ -79,13 +79,25 @@ export function SimulationScene({ config }: SimulationSceneProps) {
   return (
     <Canvas camera={{ position: [0, 7, 16], fov: 50 }} shadows>
       <color attach="background" args={["#082f49"]} />
-      <fog attach="fog" args={["#0f5f82", 10, 34]} />
+      <fog attach="fog" args={["#0f5f82", 18, 50]} />
       <ambientLight intensity={0.75} />
-      <directionalLight position={[6, 9, 6]} intensity={1.4} castShadow />
+      <directionalLight
+        position={[6, 9, 6]}
+        intensity={1.4}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-left={-20}
+        shadow-camera-right={20}
+        shadow-camera-top={20}
+        shadow-camera-bottom={-20}
+        shadow-camera-near={0.5}
+        shadow-camera-far={60}
+      />
       <pointLight position={[0, 3, -4]} color="#7dd3fc" intensity={12} distance={20} />
       <SimulationWorld config={config} />
       <KeyboardCameraControls controlsRef={controlsRef} />
-      <OrbitControls ref={controlsRef} enablePan={false} maxDistance={26} minDistance={8} />
+      <OrbitControls ref={controlsRef} enablePan={false} maxDistance={30} minDistance={8} />
       <Environment preset="sunset" />
     </Canvas>
   );
@@ -625,7 +637,7 @@ function Bubbles() {
         <Float key={index} speed={0.7 + index * 0.01} floatIntensity={1.6}>
           <mesh position={bubble.position}>
             <sphereGeometry args={[bubble.scale, 10, 8]} />
-            <meshStandardMaterial color="#e0f2fe" transparent opacity={0.38} />
+            <meshStandardMaterial color="#e0f2fe" transparent opacity={0.1} />
           </mesh>
         </Float>
       ))}
