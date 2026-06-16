@@ -181,7 +181,8 @@ export function stepSimulation(
 ): SimulationState {
   const dt = Math.min(deltaSeconds, 0.04);
   const time = state.time + dt;
-  const hazard = updateHazard(state.hazard, config, dt, time, state.food.position);
+  const groundObstacles = createGroundObstacles(state.food);
+  const hazard = updateHazard(state.hazard, config, dt, time, state.food.position, groundObstacles);
   const schoolBehavior = updateSchoolBehaviorStates(
     state.schoolBehavior,
     state.agents,
@@ -190,7 +191,6 @@ export function stepSimulation(
     time,
   );
   const schoolBehaviorByGroup = new Map(schoolBehavior.map((school) => [school.groupId, school]));
-  const groundObstacles = createGroundObstacles(state.food);
   const agents = state.agents.map((agent) => {
     const neighbors = senseNeighbors(agent, state.agents, config.perceptionRadius);
     const school = schoolBehaviorByGroup.get(agent.groupId);
@@ -485,6 +485,7 @@ function updateHazard(
   dt: number,
   time: number,
   foodPosition: Vector3,
+  groundObstacles: GroundObstacle[],
 ): Hazard {
   const leaderPosition = (hazard.leaderPosition ?? hazard.position).clone();
   const leaderVelocity = (hazard.leaderVelocity ?? randomDirection().multiplyScalar(HAZARD_LEADER_SPEED)).clone();
@@ -522,8 +523,7 @@ function updateHazard(
 
   leaderPosition.addScaledVector(leaderVelocity, dt);
   constrainHazardPosition(leaderPosition, leaderVelocity, config.bounds);
-  const burgerObstacle = createBurgerObstacle(foodPosition);
-  keepOutOfGroundObstacle(leaderPosition, leaderVelocity, burgerObstacle, false);
+  keepOutOfGroundObstacles(leaderPosition, leaderVelocity, groundObstacles, false);
 
   const reachedRadius = baitTargetActive ? HAZARD_BAIT_REACHED_RADIUS : HAZARD_TARGET_REACHED_RADIUS;
   if (leaderPosition.distanceTo(targetPosition) < reachedRadius) {
@@ -543,7 +543,7 @@ function updateHazard(
     config.bounds,
     time,
     dt,
-    burgerObstacle,
+    groundObstacles,
   );
 
   return {
@@ -590,7 +590,7 @@ function updateHazardMembers(
   bounds: Vector3,
   time: number,
   dt: number,
-  burgerObstacle: GroundObstacle,
+  groundObstacles: GroundObstacle[],
 ): HazardMember[] {
   const formationYaw = Math.sin(time * 0.17) * 0.55 + time * 0.08;
 
@@ -623,7 +623,7 @@ function updateHazardMembers(
     clampLength(velocity, HAZARD_FOLLOWER_MAX_SPEED);
     position.addScaledVector(velocity, dt);
     constrainHazardPosition(position, velocity, bounds);
-    keepOutOfGroundObstacle(position, velocity, burgerObstacle, false);
+    keepOutOfGroundObstacles(position, velocity, groundObstacles, false);
 
     return {
       ...member,
@@ -631,15 +631,6 @@ function updateHazardMembers(
       velocity,
     };
   });
-}
-
-function createBurgerObstacle(foodPosition: Vector3): GroundObstacle {
-  return {
-    id: "krabby-patty",
-    position: new Vector3(foodPosition.x, GROUND_Y, foodPosition.z),
-    radius: KRABBY_PATTY_COLLISION_RADIUS,
-    height: KRABBY_PATTY_COLLISION_HEIGHT,
-  };
 }
 
 function averageHazardPosition(members: HazardMember[]): Vector3 {
