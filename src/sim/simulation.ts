@@ -120,18 +120,56 @@ export function resizePopulation(state: SimulationState, config: SimulationConfi
     return state;
   }
 
-  const agents =
-    state.agents.length > config.agentCount
-      ? state.agents.slice(0, config.agentCount)
-      : [
-          ...state.agents,
-          ...createAgents(
-            config.agentCount - state.agents.length,
-            config.bounds,
-            state.agents.length,
-            config.agentCount,
+  let agents: FishAgent[];
+
+  if (state.agents.length > config.agentCount) {
+    // Remove agents randomly from fish only (preserve characters)
+    const characters = state.agents.filter((a) => a.groundWalk);
+    const fish = state.agents.filter((a) => !a.groundWalk);
+    const targetFishCount = Math.max(0, config.agentCount - characters.length);
+    // Fisher-Yates shuffle then take first targetFishCount
+    const shuffled = [...fish];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    agents = [...characters, ...shuffled.slice(0, targetFishCount)];
+  } else {
+    // Add agents with randomly chosen species from FISH_SCHOOLS
+    const newCount = config.agentCount - state.agents.length;
+    const nextId = state.agents.length;
+    const newAgents: FishAgent[] = Array.from({ length: newCount }, (_, index) => {
+      const id = nextId + index;
+      const groupId = Math.floor(Math.random() * FISH_SCHOOLS.length);
+      const group = FISH_SCHOOLS[groupId];
+      const position = group.origin
+        .clone()
+        .add(
+          new Vector3(
+            randomBetween(-1.4, 1.4),
+            randomBetween(-0.9, 0.9),
+            randomBetween(-1.4, 1.4),
           ),
-        ];
+        )
+        .clamp(
+          new Vector3(-config.bounds.x * 0.85, -config.bounds.y + FLOOR_CLEARANCE, -config.bounds.z * 0.85),
+          config.bounds.clone().multiplyScalar(0.85),
+        );
+      const velocity = new Vector3(randomBetween(-1, 1), randomBetween(-0.25, 0.25), randomBetween(-1, 1));
+      if (velocity.lengthSq() === 0) velocity.set(1, 0, 0);
+      return {
+        id,
+        position,
+        velocity: velocity.normalize().multiplyScalar(randomBetween(1.2, 2.4)),
+        color: group.color,
+        species: group.species,
+        groupId,
+        groundWalk: false,
+        hunger: randomBetween(FISH_INITIAL_HUNGER_MIN, FISH_INITIAL_HUNGER_MAX),
+      };
+    });
+    agents = [...state.agents, ...newAgents];
+  }
 
   return { ...state, agents };
 }
