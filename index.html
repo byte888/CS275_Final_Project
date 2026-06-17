@@ -122,15 +122,15 @@
 
       <h2>Project Links</h2>
       <ul class="links">
-        <li><a href="/report/cs275_final_report.pdf">Project report PDF</a></li>
-        <li><a href="https://drive.google.com/file/d/1-6HV3sMmmtutmhrwmW3iKqfHTpm_UdiU/view?usp=sharing">Video demo on Google Drive</a></li>
+        <li><a href="public/report/cs275_final_report.pdf">Project report PDF</a></li>
+        <li><a href="public/video/index.html">Video demo</a></li>
         <li><a href="https://github.com/byte888/CS275_Final_Project">Project source code on GitHub</a></li>
         <li><a href="#root">Executable browser demo on this page</a></li>
       </ul>
 
       <h2>Representative Image</h2>
       <figure>
-        <img src="/images/simulation-screenshot.jpg" alt="Screenshot of the interactive Bikini Bottom artificial life simulation environment." />
+        <img src="public/images/simulation-screenshot.jpg" alt="Screenshot of the interactive Bikini Bottom artificial life simulation environment." />
         <figcaption>
           Screenshot from the interactive simulation: fish schools move through the Bikini Bottom environment while
           responding to the Krabby Patty attractor and jellyfish hazard.
@@ -153,6 +153,11 @@
 
     <section class="demo-heading">
       <h2>Interactive Executable Demo</h2>
+      <p>
+        To run the live demo, open a terminal in this folder and run <code>npm install</code> followed by
+        <code>npm run dev</code>, then open the local server URL it prints (e.g. <code>http://localhost:5173</code>)
+        in your browser.
+      </p>
       <p>Use the controls panel to adjust agent count, perception radius, and behavior weights.</p>
     </section>
     <div id="root"></div>
