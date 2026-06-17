@@ -4,8 +4,157 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bikini Bottom Artificial Life</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #082f49;
+        color: #e0f2fe;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .project-page {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 2rem;
+        line-height: 1.55;
+      }
+
+      .project-page h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(2rem, 5vw, 3.4rem);
+        line-height: 1;
+      }
+
+      .project-page h2 {
+        margin-top: 2rem;
+        color: #fde68a;
+      }
+
+      .project-page a {
+        color: #bae6fd;
+        font-weight: 700;
+      }
+
+      .project-page .subtitle {
+        margin: 0 0 1rem;
+        color: #bae6fd;
+        font-size: 1.15rem;
+      }
+
+      .project-page .members {
+        margin: 0 0 1.5rem;
+        color: #fef3c7;
+        font-weight: 700;
+      }
+
+      .project-page .links {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.75rem;
+        padding: 0;
+        list-style: none;
+      }
+
+      .project-page .links li,
+      .project-page figure {
+        border: 1px solid rgb(186 230 253 / 0.25);
+        border-radius: 0.8rem;
+        background: rgb(7 89 133 / 0.55);
+        padding: 1rem;
+      }
+
+      .project-page figure {
+        margin: 1rem 0 0;
+      }
+
+      .project-page img {
+        width: 100%;
+        height: auto;
+        display: block;
+        border-radius: 0.55rem;
+      }
+
+      .project-page figcaption {
+        margin-top: 0.75rem;
+        color: #bae6fd;
+      }
+
+      .video-embed {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        border: 1px solid rgb(186 230 253 / 0.25);
+        border-radius: 0.8rem;
+        background: #020617;
+      }
+
+      .demo-heading {
+        max-width: 1080px;
+        margin: 1rem auto 0;
+        padding: 0 2rem;
+      }
+    </style>
   </head>
   <body>
+    <main class="project-page">
+      <h1>Bikini Bottom Artificial Life</h1>
+      <p class="subtitle">
+        A Multi-Agent Simulation with Perception-Driven Behavior, Internal Hunger State, and Environmental Hazards
+      </p>
+      <p class="members">Team Members: Leica Shen, Yiran Wu, Zhengli Shang, Zijie Zhang</p>
+
+      <h2>Abstract</h2>
+      <p>
+        We present a browser-based three-dimensional artificial-life simulation inspired by Bikini Bottom.
+        Fish agents move through a stylized underwater volume using a local perception-action loop that
+        combines Reynolds-style steering forces with artificial-life-oriented extensions: an internal hunger
+        state that gates food-seeking motivation, and school-level target modes that produce stable explore,
+        food-loiter, or food-avoidance behavior at the group scale. A procedurally animated jellyfish swarm
+        acts as a periodic bait/hazard, and static landmark footprints impose collision constraints. The system
+        is implemented in TypeScript with React, Vite, Three.js, and React Three Fiber, runs in a standard web
+        browser, and exposes the main behavior weights through an interactive controls panel so emergent group
+        dynamics can be inspected and tuned in real time.
+      </p>
+
+      <h2>Project Links</h2>
+      <ul class="links">
+        <li><a href="/report/cs275_final_report.pdf">Project report PDF</a></li>
+        <li><a href="https://drive.google.com/file/d/1-6HV3sMmmtutmhrwmW3iKqfHTpm_UdiU/view?usp=sharing">Video demo on Google Drive</a></li>
+        <li><a href="https://github.com/byte888/CS275_Final_Project">Project source code on GitHub</a></li>
+        <li><a href="#root">Executable browser demo on this page</a></li>
+      </ul>
+
+      <h2>Representative Image</h2>
+      <figure>
+        <img src="/images/simulation-screenshot.jpg" alt="Screenshot of the interactive Bikini Bottom artificial life simulation environment." />
+        <figcaption>
+          Screenshot from the interactive simulation: fish schools move through the Bikini Bottom environment while
+          responding to the Krabby Patty attractor and jellyfish hazard.
+        </figcaption>
+      </figure>
+
+      <h2>Video Demo</h2>
+      <iframe
+        class="video-embed"
+        src="https://drive.google.com/file/d/1-6HV3sMmmtutmhrwmW3iKqfHTpm_UdiU/preview"
+        allow="autoplay; encrypted-media"
+        allowfullscreen
+        title="Bikini Bottom Artificial Life video demo"
+      ></iframe>
+      <p>
+        If the embedded preview does not load, open the
+        <a href="https://drive.google.com/file/d/1-6HV3sMmmtutmhrwmW3iKqfHTpm_UdiU/view?usp=sharing">Google Drive video demo</a>.
+      </p>
+    </main>
+
+    <section class="demo-heading">
+      <h2>Interactive Executable Demo</h2>
+      <p>Use the controls panel to adjust agent count, perception radius, and behavior weights.</p>
+    </section>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

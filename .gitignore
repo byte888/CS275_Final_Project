@@ -6,6 +6,11 @@ dist/
 dist-ssr/
 *.local
 
+# Large local video captures
+public/video/*.mov
+public/video/*.mp4
+public/video/*.webm
+
 # Logs
 logs
 *.log
